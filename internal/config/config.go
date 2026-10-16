@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sync/atomic"
 
+	"github.com/bltn/hl7gw/internal/console"
 	itls "github.com/bltn/hl7gw/internal/tls"
 )
 
@@ -25,6 +26,7 @@ const (
 	TLSModeMTLS = "mtls"
 
 	DefaultLogLevel = "info"
+	LogFormatAuto   = "auto"
 	LogFormatJSON   = "json"
 	LogFormatText   = "text"
 )
@@ -41,12 +43,12 @@ type Log struct {
 	Format string `json:"format"`
 }
 
-func (l Log) Logger(w io.Writer) *slog.Logger {
-	opts := &slog.HandlerOptions{Level: logLevels[l.Level]}
-	if l.Format == LogFormatText {
-		return slog.New(slog.NewTextHandler(w, opts))
+func (l Log) Logger(w io.Writer, term console.Terminal) *slog.Logger {
+	level := logLevels[l.Level]
+	if l.Format == LogFormatJSON || (l.Format == LogFormatAuto && !term.TTY) {
+		return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
 	}
-	return slog.New(slog.NewJSONHandler(w, opts))
+	return slog.New(term.Handler(w, level))
 }
 
 type AdminAPI struct {
@@ -171,7 +173,7 @@ func Load(path string) (Config, error) {
 		cfg.Log.Level = DefaultLogLevel
 	}
 	if cfg.Log.Format == "" {
-		cfg.Log.Format = LogFormatJSON
+		cfg.Log.Format = LogFormatAuto
 	}
 
 	err = validate(cfg)
@@ -212,8 +214,8 @@ func validate(cfg Config) error {
 	if _, ok := logLevels[cfg.Log.Level]; !ok {
 		return fmt.Errorf("log.level must be one of \"debug\", \"info\", \"warn\", \"error\", got %q", cfg.Log.Level)
 	}
-	if cfg.Log.Format != LogFormatJSON && cfg.Log.Format != LogFormatText {
-		return fmt.Errorf("log.format must be %q or %q, got %q", LogFormatJSON, LogFormatText, cfg.Log.Format)
+	if cfg.Log.Format != LogFormatAuto && cfg.Log.Format != LogFormatJSON && cfg.Log.Format != LogFormatText {
+		return fmt.Errorf("log.format must be %q, %q or %q, got %q", LogFormatAuto, LogFormatJSON, LogFormatText, cfg.Log.Format)
 	}
 
 	names := make(map[string]bool)

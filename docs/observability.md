@@ -7,18 +7,37 @@ logged. They're kept in the journal and can be read through the admin API.
 
 ## Logs
 
-Logs go to **stdout** as one JSON object per line, written with Go's
-`log/slog`. The only thing written to stderr is the fatal `error: …` line
-printed when the gateway refuses to start. The optional `log` config block
-controls the output:
+Logs go to **stdout**, written with Go's `log/slog`. The only thing written
+to stderr is the fatal `error: …` line printed when the gateway refuses to
+start. The optional `log` config block controls the output:
 
 ```json
-"log": {"level": "info", "format": "json"}
+"log": {"level": "info", "format": "auto"}
 ```
 
 `level` is one of `debug`, `info`, `warn` or `error` (default `info`).
-`format` is `json` or `text` (default `json`); `text` is slog's `key=value`
-form, which is easier to read locally.
+
+`format` is `auto` (default), `json` or `text`:
+
+- `json` writes one JSON object per line. This is the format for anything that
+  collects logs: journald, Docker, Kubernetes, a file.
+- `text` writes one human-readable line per record: a `HH:MM:SS` local
+  timestamp, the level, the message, then `key=value` attrs. Values containing
+  spaces, quotes or `=` are quoted Go-style.
+- `auto` picks `text` when stdout is a terminal and `json` otherwise, so
+  running the binary by hand is readable and running it under a supervisor or
+  through a pipe stays machine-parseable with no configuration.
+
+On a terminal, `text` output is coloured and startup prints a short `hl7gw`
+banner before the first record. Set `NO_COLOR` to any value, or `TERM=dumb`,
+to keep the format but drop the colours. The banner is never written when
+stdout is not a terminal, and it is not a log record.
+
+```
+15:04:05 INFO  starting version=v0.3.0 commit=1a2b3c
+15:04:05 INFO  listening channel=sft-adt-feed addr=:3000 tls=mtls
+15:04:09 WARN  tls handshake failed channel=sft-adt-feed remote=10.0.0.5:4242 err="remote error: tls: bad certificate"
+```
 
 Every record carries `time`, `level` and `msg`. Records about a channel also
 carry `channel`, and records about a message carry `message_id` (the journal

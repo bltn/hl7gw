@@ -8,6 +8,7 @@ import (
 
 	"github.com/bltn/hl7gw/internal/api"
 	"github.com/bltn/hl7gw/internal/config"
+	"github.com/bltn/hl7gw/internal/console"
 	"github.com/bltn/hl7gw/internal/metrics"
 	"github.com/bltn/hl7gw/internal/processor"
 	"github.com/bltn/hl7gw/internal/shutdown"
@@ -18,12 +19,13 @@ import (
 
 const shutdownDeadline = 20 * time.Second
 
-func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.Writer) error {
+func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.Writer, term console.Terminal) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
-	log := cfg.Log.Logger(stdout)
+	term.Banner(stdout)
+	log := cfg.Log.Logger(stdout, term)
 	version, commit := buildVersion()
 	log.Info("starting", "version", version, "commit", commit)
 	m := metrics.New(version, commit)

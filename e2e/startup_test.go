@@ -64,7 +64,7 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 		{
 			name:       "unknown log format",
 			body:       `{` + adminAPIOK + `, "log": {"format": "xml"}, "channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, `log.format must be "json" or "text", got "xml"`},
+			wantStderr: []string{errorPrefix, `log.format must be "auto", "json" or "text", got "xml"`},
 		},
 		{
 			name:       "truncated json",

@@ -371,38 +371,56 @@ func parseJSONLogLine(line string) (LogRecord, bool) {
 }
 
 func parseTextLogLine(line string) (LogRecord, bool) {
-	rec := LogRecord{Attrs: map[string]any{}}
-	rest := strings.TrimSpace(line)
+	_, rest, ok := strings.Cut(strings.TrimSpace(line), " ")
+	if !ok {
+		return LogRecord{}, false
+	}
+	level, rest, ok := strings.Cut(strings.TrimLeft(rest, " "), " ")
+	if !ok {
+		return LogRecord{}, false
+	}
+	rec := LogRecord{Level: level, Attrs: map[string]any{}}
+	rest = strings.TrimLeft(rest, " ")
+	var msg []string
 	for rest != "" {
-		key, after, ok := strings.Cut(rest, "=")
-		if !ok {
-			return LogRecord{}, false
+		token, after, _ := strings.Cut(rest, " ")
+		key, value, isAttr := strings.Cut(token, "=")
+		if !isAttr || !isAttrKey(key) {
+			msg = append(msg, token)
+			rest = strings.TrimLeft(after, " ")
+			continue
 		}
-		var value string
-		if strings.HasPrefix(after, `"`) {
-			end := closingQuote(after)
+		if strings.HasPrefix(value, `"`) {
+			quoted := rest[len(key)+1:]
+			end := closingQuote(quoted)
 			if end < 0 {
 				return LogRecord{}, false
 			}
-			unquoted, err := strconv.Unquote(after[:end+1])
+			unquoted, err := strconv.Unquote(quoted[:end+1])
 			if err != nil {
 				return LogRecord{}, false
 			}
-			value, rest = unquoted, strings.TrimLeft(after[end+1:], " ")
-		} else {
-			value, rest, _ = strings.Cut(after, " ")
+			value, after = unquoted, quoted[end+1:]
 		}
-		switch key {
-		case "time":
-		case "level":
-			rec.Level = value
-		case "msg":
-			rec.Msg = value
+		rec.Attrs[key] = value
+		rest = strings.TrimLeft(after, " ")
+	}
+	rec.Msg = strings.Join(msg, " ")
+	return rec, rec.Msg != ""
+}
+
+func isAttrKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r == '_', r == '.', r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
 		default:
-			rec.Attrs[key] = value
+			return false
 		}
 	}
-	return rec, rec.Msg != ""
+	return true
 }
 
 func closingQuote(s string) int {
