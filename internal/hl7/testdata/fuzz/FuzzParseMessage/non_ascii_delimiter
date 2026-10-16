@@ -1,0 +1,2 @@
+go test fuzz v1
+string("MSH\x80^~\\&|APP|FAC|||20240101000000||ADT^A01|MSG1|P|2.5\r")

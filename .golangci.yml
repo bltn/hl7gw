@@ -1,0 +1,47 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - errorlint
+    - errname
+    - exhaustive
+    - fatcontext
+    - goconst
+    - gocritic
+    - gosec
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - prealloc
+    - unparam
+    - rowserrcheck
+    - sqlclosecheck
+    - paralleltest
+  settings:
+    paralleltest:
+      ignore-missing-subtests: true
+  exclusions:
+    rules:
+      - path: ^internal/
+        linters:
+          - paralleltest
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+run:
+  go: "1.27.0"
+  timeout: 5m
+  tests: true

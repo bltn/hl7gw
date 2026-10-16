@@ -1,0 +1,9 @@
+extends: [[vacuum:oas, recommended], [vacuum:owasp, all]]
+
+rules:
+  camel-case-properties: false
+  owasp-rate-limit: false
+  owasp-rate-limit-retry-after: false
+  owasp-define-error-responses-429: false
+  oas3-missing-example: false
+  owasp-no-numeric-ids: false

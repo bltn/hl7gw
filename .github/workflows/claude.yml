@@ -1,0 +1,85 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Allow Claude to post replies on PRs
+      issues: write # Allow Claude to post replies on issue comments
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Pick the model and effort from `model=` / `effort=` directives in the
+      # triggering comment. BODY is passed via env (never interpolated straight
+      # into run:) so attacker-controlled comment text can't inject shell.
+      - name: Select model and effort
+        id: select
+        env:
+          BODY: >-
+            ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+        run: |
+          # model= (default fable); map short name -> full id
+          case "$(printf '%s' "$BODY" | grep -oiE 'model=(fable|opus|sonnet)' | head -1 | cut -d= -f2 | tr '[:upper:]' '[:lower:]')" in
+            opus)   model="claude-opus-4-8" ;;
+            sonnet) model="claude-sonnet-5" ;;
+            *)      model="claude-fable-5"  ;;   # default / model=fable
+          esac
+          # effort= (default high); only accept the 5 valid levels
+          effort="$(printf '%s' "$BODY" | grep -oiE 'effort=(low|medium|high|xhigh|max)' | head -1 | cut -d= -f2 | tr '[:upper:]' '[:lower:]')"
+          effort="${effort:-high}"
+          # fallback chain = the other tiers, so any pick stays available under overload
+          case "$model" in
+            claude-fable-5)  fallback="claude-opus-4-8,claude-sonnet-5" ;;
+            claude-opus-4-8) fallback="claude-sonnet-5,claude-fable-5"  ;;
+            claude-sonnet-5) fallback="claude-opus-4-8,claude-fable-5"  ;;
+          esac
+          echo "model=$model"       >> "$GITHUB_OUTPUT"
+          echo "effort=$effort"     >> "$GITHUB_OUTPUT"
+          echo "fallback=$fallback" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Model and effort come from `model=`/`effort=` in the @claude comment
+          # (defaults: fable-5, high). --fallback-model tries each in order on overload.
+          claude_args: |
+            --model ${{ steps.select.outputs.model }}
+            --effort ${{ steps.select.outputs.effort }}
+            --fallback-model ${{ steps.select.outputs.fallback }}
+
+          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
+          # prompt: 'Update the pull request description to include a summary of changes.'
+
+          # Optional: Add claude_args to customize behavior and configuration
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+          # claude_args: '--allowed-tools Bash(gh pr *)'
+

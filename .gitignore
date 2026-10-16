@@ -1,0 +1,7 @@
+.idea/
+cover.out
+coverage/
+bin/
+dist/
+config.json
+data/
