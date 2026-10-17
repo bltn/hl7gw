@@ -1,12 +1,10 @@
 # hl7gw
 
-A lightweight, self-hosted HL7v2 gateway that's delightfully simple to run and operate. Built for developers, not hospital IT people.
+A lightweight, self-hosted HL7v2 gateway that's delightfully simple to run and operate.
 
-- **One binary.** No Java, no database server, nothing else to install.
-- **One simple config file.** JSON, with secrets read from environment
-  variables.
-- **Observable by default.** Structured logs, Prometheus metrics and health
-  probes with no setup.
+- **One self-contained binary.** No dependencies to wrangle, no database servers, nada.
+- **One simple config file.** JSON, with secrets read from environment variables.
+- **Observable by default.** Structured logs, Prometheus metrics and health probes with no setup.
 
 ## Getting started
 
