@@ -3,21 +3,56 @@ name: Release
 on:
   push:
     tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version component to bump
+        type: choice
+        required: true
+        default: patch
+        options: [ patch, minor, major ]
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag the next version
+        id: tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "releases are cut from main, not $GITHUB_REF_NAME"; exit 1; }
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq length)
+          [ "$passed" -gt 0 ] || { echo "CI has not passed on $GITHUB_SHA"; exit 1; }
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)
+          IFS=. read -r major minor patch <<< "${prev#v}"
+          case "$BUMP" in
+            major) tag="v$((major + 1)).0.0" ;;
+            minor) tag="v$major.$((minor + 1)).0" ;;
+            patch) tag="v$major.$minor.$((patch + 1))" ;;
+          esac
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        env:
+          BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ github.token }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
       - run: make dist
       - name: Publish release
-        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt --generate-notes --verify-tag
+        run: gh release create "$TAG" dist/*.tar.gz dist/checksums.txt --generate-notes --verify-tag
         env:
+          TAG: ${{ steps.tag.outputs.tag || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
