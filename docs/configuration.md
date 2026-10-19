@@ -1,10 +1,14 @@
 # Configuration
 
-hl7gw reads a single JSON file given by `-config`:
+hl7gw reads a single JSON file given to `run -config`:
 
 ```sh
-hl7gw -config /etc/hl7gw/hl7gw.json
+hl7gw run -config /etc/hl7gw/hl7gw.json
 ```
+
+`hl7gw configure` writes one interactively. It asks for every option below
+(the mutual TLS material only when a channel chooses `mtls`), rejects invalid
+answers on the spot, and always sets `destination.auth.type` to `bearer`.
 
 Unknown keys are rejected. The gateway refuses to start, with an `error: …`
 line on stderr, if the file is invalid, if a named environment variable is
@@ -20,7 +24,7 @@ unset or empty, or if TLS material can't be loaded.
 | `data_dir` | | `data` | Directory for the journals. Each channel writes `<data_dir>/<channel>.db`. |
 | `tls_reload_interval_seconds` | | `120` | How often mTLS certificates and client CA files are re-read from disk. |
 | `log.level` | | `info` | `debug`, `info`, `warn` or `error`. |
-| `log.format` | | `json` | `json`, or `text` for slog's `key=value` form. |
+| `log.format` | | `auto` | `json`, `text` for slog's `key=value` form, or `auto` for `text` on a terminal and `json` otherwise. |
 
 ## Channels
 

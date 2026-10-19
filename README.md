@@ -16,7 +16,13 @@ curl -fsSL "https://github.com/bltn/hl7gw/releases/latest/download/hl7gw_$(uname
 
 **2. Set up your config file**
 
-hl7gw runs against a single JSON file that defines the admin API and one or more channels. Example below:
+hl7gw runs against a single JSON file that defines the admin API and one or more channels. The quickest way to get one is the interactive wizard, which asks a few questions and writes `hl7gw.json`:
+
+```sh
+./hl7gw configure
+```
+
+Or write it yourself. Example below:
 
 ```json
 {
@@ -40,12 +46,12 @@ See [docs/configuration.md](docs/configuration.md) for every option.
 
 ```sh
 export HL7GW_ADMIN_TOKEN=change-me ADT_API_TOKEN=your-api-token
-./hl7gw -config hl7gw.json
+./hl7gw run -config hl7gw.json
 ```
 
 **4. Explore the admin API**
 
-For now, at least, the admin API (gated by `admin_api.token` in your config file) is the best way to operate a running instance.
+For now, at least, the admin API (gated by `admin_api.token_env` in your config file) is the best way to operate a running instance.
 
 Run the binary and then open [http://localhost:8081/docs](http://localhost:8081/docs) for the full API reference, with a description of every endpoint.
 
@@ -85,7 +91,8 @@ The main thing to be aware of is that, for now, hl7gw only has one ACK model: on
 
 ```sh
 make build        # bin/hl7gw
-make run          # go run .
+make configure    # go run . configure -output hl7gw.json
+make run          # go run . run -config hl7gw.json
 make check        # lint, unit + e2e tests with a 100% coverage gate & short fuzzing run
 make e2e_tests    # black-box tests against the built binary
 make fuzz FUZZTIME=30s

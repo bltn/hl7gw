@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -100,51 +101,55 @@ func StartGatewayWithLog(t *testing.T, log Log, channels ...Channel) (*Gateway, 
 		return nil, err
 	}
 
-	gw, err := spawnGateway(cfgPath, workDir, StartupEnv())
-	if err != nil {
-		return nil, err
+	gw := &Gateway{
+		cfgPath:      cfgPath,
+		workDir:      workDir,
+		dataDir:      filepath.Join(workDir, "data"),
+		channelPorts: make(map[string]int, len(channels)),
+		channelTLS:   make(map[string]*ChannelTLS, len(channels)),
+		apiPort:      apiPort,
 	}
-	t.Cleanup(func() { _ = gw.Stop() })
-
-	gw.cfgPath = cfgPath
-	gw.workDir = workDir
-	gw.dataDir = filepath.Join(workDir, "data")
-	gw.channelPorts = make(map[string]int, len(channels))
-	gw.channelTLS = make(map[string]*ChannelTLS, len(channels))
 	for i, ch := range channels {
 		gw.channelPorts[ch.Name] = channelPorts[i]
 		gw.channelTLS[ch.Name] = ch.TLS
 	}
-	gw.apiPort = apiPort
+	return launch(t, gw)
+}
+
+func StartGatewayFromConfig(t *testing.T, cfgPath string, apiPort int, channelPorts map[string]int) (*Gateway, error) {
+	workDir := filepath.Dir(cfgPath)
+	return launch(t, &Gateway{
+		cfgPath:      cfgPath,
+		workDir:      workDir,
+		dataDir:      filepath.Join(workDir, "data"),
+		channelPorts: channelPorts,
+		channelTLS:   map[string]*ChannelTLS{},
+		apiPort:      apiPort,
+	})
+}
+
+func (gw *Gateway) Restart(t *testing.T) (*Gateway, error) {
+	return launch(t, &Gateway{
+		cfgPath:      gw.cfgPath,
+		workDir:      gw.workDir,
+		dataDir:      gw.dataDir,
+		channelPorts: gw.channelPorts,
+		channelTLS:   gw.channelTLS,
+		apiPort:      gw.apiPort,
+	})
+}
+
+func launch(t *testing.T, gw *Gateway) (*Gateway, error) {
+	if err := gw.spawn(StartupEnv(), nil, "run", "-config", gw.cfgPath); err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = gw.Stop() })
 
 	if err := gw.awaitListening(); err != nil {
 		_ = gw.Stop()
 		return nil, err
 	}
-
 	return gw, nil
-}
-
-func (gw *Gateway) Restart(t *testing.T) (*Gateway, error) {
-	next, err := spawnGateway(gw.cfgPath, gw.workDir, StartupEnv())
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(func() { _ = next.Stop() })
-
-	next.cfgPath = gw.cfgPath
-	next.workDir = gw.workDir
-	next.dataDir = gw.dataDir
-	next.channelPorts = gw.channelPorts
-	next.channelTLS = gw.channelTLS
-	next.apiPort = gw.apiPort
-
-	if err := next.awaitListening(); err != nil {
-		_ = next.Stop()
-		return nil, err
-	}
-
-	return next, nil
 }
 
 func (gw *Gateway) awaitListening() error {
@@ -188,16 +193,9 @@ func Env(set map[string]string, unset ...string) []string {
 	return env
 }
 
-func RunUntilExit(t *testing.T, config string, env []string) (ExitResult, error) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if config != "" {
-		if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-			return ExitResult{}, fmt.Errorf("write config: %w", err)
-		}
-	}
-
-	gw, err := spawnGateway(configPath, "", env)
-	if err != nil {
+func RunUntilExit(t *testing.T, stdin string, env []string, args ...string) (ExitResult, error) {
+	gw := &Gateway{workDir: t.TempDir()}
+	if err := gw.spawn(env, strings.NewReader(stdin), args...); err != nil {
 		return ExitResult{}, err
 	}
 
@@ -222,26 +220,26 @@ func RunUntilExit(t *testing.T, config string, env []string) (ExitResult, error)
 	}
 }
 
-func spawnGateway(configPath, dir string, env []string) (*Gateway, error) {
+func (gw *Gateway) spawn(env []string, stdin io.Reader, args ...string) error {
 	binPath, err := builtBinary()
 	if err != nil {
-		return nil, fmt.Errorf("build gateway binary: %w", err)
+		return fmt.Errorf("build gateway binary: %w", err)
 	}
 
-	outBuf := &syncBuffer{}
-	errBuf := &syncBuffer{}
+	gw.outBuf = &syncBuffer{}
+	gw.errBuf = &syncBuffer{}
 	//nolint:gosec,noctx // G204: our own freshly built test binary, test-controlled args; noctx: lifecycle is managed by the caller (SIGTERM in Stop, or kill after the exit timeout), not context cancellation (which would SIGKILL and lose coverage)
-	cmd := exec.Command(binPath, "-config", configPath)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.Stdout = outBuf
-	cmd.Stderr = errBuf
+	gw.cmd = exec.Command(binPath, args...)
+	gw.cmd.Dir = gw.workDir
+	gw.cmd.Env = env
+	gw.cmd.Stdin = stdin
+	gw.cmd.Stdout = gw.outBuf
+	gw.cmd.Stderr = gw.errBuf
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start gateway: %w", err)
+	if err := gw.cmd.Start(); err != nil {
+		return fmt.Errorf("start gateway: %w", err)
 	}
-
-	return &Gateway{cmd: cmd, outBuf: outBuf, errBuf: errBuf}, nil
+	return nil
 }
 
 func (gw *Gateway) StopNoWait() error {

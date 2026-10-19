@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +27,13 @@ const (
 
 func expectStartupFailure(t *testing.T, config string, env []string, wantStderr ...string) {
 	t.Helper()
-	res, err := harness.RunUntilExit(t, config, env)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if config != "" {
+		if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+	}
+	res, err := harness.RunUntilExit(t, "", env, "run", "-config", configPath)
 	if err != nil {
 		t.Fatalf("run gateway: %v", err)
 	}

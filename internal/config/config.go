@@ -91,10 +91,10 @@ type TCPListener struct {
 
 type TLS struct {
 	Mode           string      `json:"mode"`
-	ClientCAPath   string      `json:"client_ca_path"`
-	ServerCertPath string      `json:"server_cert_path"`
-	ServerPKPath   string      `json:"server_pk_path"`
-	MinVersion     json.Number `json:"min_version"`
+	ClientCAPath   string      `json:"client_ca_path,omitempty"`
+	ServerCertPath string      `json:"server_cert_path,omitempty"`
+	ServerPKPath   string      `json:"server_pk_path,omitempty"`
+	MinVersion     json.Number `json:"min_version,omitempty"`
 	serving        atomic.Pointer[tls.Config]
 	serverCert     tls.Certificate
 	clientCAs      *x509.CertPool
@@ -147,34 +147,36 @@ func (d *DestURL) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (d DestURL) MarshalText() ([]byte, error) {
+	if d.URL == nil {
+		return []byte{}, nil
+	}
+	return []byte(d.String()), nil
+}
+
 type Config struct {
+	AdminAPI                 AdminAPI  `json:"admin_api"`
 	DataDir                  string    `json:"data_dir"`
 	TLSReloadIntervalSeconds int       `json:"tls_reload_interval_seconds"`
 	Log                      Log       `json:"log"`
-	AdminAPI                 AdminAPI  `json:"admin_api"`
 	Channels                 []Channel `json:"channels"`
 }
 
 var channelNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func ValidateChannelName(name string) error {
+	if !channelNamePattern.MatchString(name) {
+		return fmt.Errorf("channel name %q must be non-empty and contain only letters, digits, _ or -", name)
+	}
+	return nil
+}
 
 func Load(path string) (Config, error) {
 	cfg, err := loadAndDecode(path)
 	if err != nil {
 		return Config{}, err
 	}
-
-	if cfg.DataDir == "" {
-		cfg.DataDir = DefaultDataDir
-	}
-	if cfg.TLSReloadIntervalSeconds == 0 {
-		cfg.TLSReloadIntervalSeconds = DefaultTLSReloadIntervalSeconds
-	}
-	if cfg.Log.Level == "" {
-		cfg.Log.Level = DefaultLogLevel
-	}
-	if cfg.Log.Format == "" {
-		cfg.Log.Format = LogFormatAuto
-	}
+	applyDefaults(&cfg)
 
 	err = validate(cfg)
 	if err != nil {
@@ -201,6 +203,26 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+func applyDefaults(cfg *Config) {
+	if cfg.DataDir == "" {
+		cfg.DataDir = DefaultDataDir
+	}
+	if cfg.TLSReloadIntervalSeconds == 0 {
+		cfg.TLSReloadIntervalSeconds = DefaultTLSReloadIntervalSeconds
+	}
+	if cfg.Log.Level == "" {
+		cfg.Log.Level = DefaultLogLevel
+	}
+	if cfg.Log.Format == "" {
+		cfg.Log.Format = LogFormatAuto
+	}
+	for i := range cfg.Channels {
+		if cfg.Channels[i].TCPListener.MaxConnections == 0 {
+			cfg.Channels[i].TCPListener.MaxConnections = DefaultMaxTCPConnections
+		}
+	}
+}
+
 func validate(cfg Config) error {
 	if cfg.AdminAPI.Port <= 0 {
 		return fmt.Errorf("admin_api.port is required and must be positive, got %d", cfg.AdminAPI.Port)
@@ -220,9 +242,9 @@ func validate(cfg Config) error {
 
 	names := make(map[string]bool)
 	ports := make(map[int]bool)
-	for i, ch := range cfg.Channels {
-		if !channelNamePattern.MatchString(ch.Name) {
-			return fmt.Errorf("channel name %q must be non-empty and contain only letters, digits, _ or -", ch.Name)
+	for _, ch := range cfg.Channels {
+		if err := ValidateChannelName(ch.Name); err != nil {
+			return err
 		}
 		if names[ch.Name] {
 			return fmt.Errorf("duplicate channel name %s", ch.Name)
@@ -237,9 +259,6 @@ func validate(cfg Config) error {
 		ports[ch.TCPListener.Port] = true
 		if ch.TCPListener.MaxConnections < 0 {
 			return fmt.Errorf("channel %s: tcp_listener.max_connections must be positive, got %d", ch.Name, ch.TCPListener.MaxConnections)
-		}
-		if ch.TCPListener.MaxConnections == 0 {
-			cfg.Channels[i].TCPListener.MaxConnections = DefaultMaxTCPConnections
 		}
 		if ch.TCPListener.IdleTimeoutSeconds <= 0 {
 			return fmt.Errorf("channel %s: tcp_listener.idle_timeout_seconds is required and must be positive, got %d", ch.Name, ch.TCPListener.IdleTimeoutSeconds)

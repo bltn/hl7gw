@@ -1,0 +1,16 @@
+eighty
+
+
+
+
+
+adt
+8081
+
+
+
+
+/hl7
+https://api.example.com/hl7
+
+n

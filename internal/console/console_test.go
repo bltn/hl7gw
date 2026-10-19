@@ -52,6 +52,28 @@ func TestBanner(t *testing.T) {
 	}
 }
 
+func TestPaintHelpers(t *testing.T) {
+	cases := []struct {
+		name  string
+		paint func(Terminal, string) string
+		code  string
+	}{
+		{"dim", Terminal.Dim, ansiDim},
+		{"alert", Terminal.Alert, ansiRed},
+		{"success", Terminal.Success, ansiGreen},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.paint(Terminal{Color: true}, "x"); got != tc.code+"x"+ansiReset {
+				t.Errorf("coloured = %q", got)
+			}
+			if got := tc.paint(Terminal{}, "x"); got != "x" {
+				t.Errorf("plain = %q", got)
+			}
+		})
+	}
+}
+
 func TestHandlerFormatsRecords(t *testing.T) {
 	cases := []struct {
 		name  string

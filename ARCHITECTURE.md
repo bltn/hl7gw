@@ -119,11 +119,14 @@ decisions above. It's a deliberate next step, not a fix.
 ## Code map
 
 ```
-main.go                 flags and signal handling; calls gateway.Run
+main.go                 subcommand dispatch (run, configure), flags and signal handling
 internal/gateway        composition root: wires config, stores, listeners and the admin API;
                         maps a processing outcome to an ACK code
+internal/configure      the interactive wizard behind `hl7gw configure`; writes a config
+                        that config.Load accepts
 internal/config         loads and validates the JSON config, resolves tokens, loads TLS
                         material and hot-reloads it
+internal/console        terminal detection, colour and the text log handler
 internal/source         MLLP listeners: accept loop, connection cap, TLS handshake,
                         the per-connection read → handle → ACK loop, shutdown drain
 internal/mllp           MLLP framing
