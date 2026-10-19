@@ -1,0 +1,32 @@
+{
+  "admin_api": {
+    "port": 8081,
+    "token_env": "HL7GW_ADMIN_TOKEN"
+  },
+  "data_dir": "data",
+  "tls_reload_interval_seconds": 120,
+  "log": {
+    "level": "info",
+    "format": "auto"
+  },
+  "channels": [
+    {
+      "name": "adt",
+      "tcp_listener": {
+        "max_connections": 64,
+        "port": 2575,
+        "idle_timeout_seconds": 60,
+        "tls": {
+          "mode": "off"
+        }
+      },
+      "destination": {
+        "url": "https://api.example.com/hl7",
+        "auth": {
+          "type": "bearer",
+          "token_env": "ADT_API_TOKEN"
+        }
+      }
+    }
+  ]
+}

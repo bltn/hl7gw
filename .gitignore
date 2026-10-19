@@ -5,4 +5,4 @@ bin/
 dist/
 config.json
 data/
-hl7gw.json
+/hl7gw.json
