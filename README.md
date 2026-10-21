@@ -3,7 +3,7 @@
 A lightweight, self-hosted HL7v2 gateway that's delightfully simple to run and operate.
 
 - **One self-contained binary.** No dependencies to wrangle, no database servers, nada.
-- **One simple config file.** JSON, with secrets read from environment variables.
+- **One simple config file.** JSON, with secrets read from files.
 - **Observable by default.** Structured logs, Prometheus metrics and health probes with no setup.
 
 ## Getting started
@@ -16,18 +16,24 @@ curl -fsSL "https://github.com/bltn/hl7gw/releases/latest/download/hl7gw_$(uname
 
 **2. Set up your config file**
 
-hl7gw runs against a single JSON file that defines the admin API and one or more channels. Example below:
+hl7gw runs against a single JSON file that defines the admin API and one or more channels. The quickest way to get one is the interactive wizard, which asks a few questions, writes `hl7gw.json` and generates an admin API token into `admin.token`:
+
+```sh
+./hl7gw configure
+```
+
+Or write it yourself. Example below:
 
 ```json
 {
-  "admin_api": { "port": 8081, "token_env": "HL7GW_ADMIN_TOKEN" },
+  "admin": { "port": 8081, "token_file": "admin.token" },
   "channels": [
     {
       "name": "adt",
-      "tcp_listener": { "port": 2575, "idle_timeout_seconds": 60, "tls": { "mode": "off" } },
+      "source": { "port": 2575, "idle_timeout": "1m", "tls": { "mode": "off" } },
       "destination": {
         "url": "https://your-api.example.com/hl7",
-        "auth": { "type": "bearer", "token_env": "ADT_API_TOKEN" }
+        "auth": { "type": "bearer", "token_file": "adt.token" }
       }
     }
   ]
@@ -38,14 +44,16 @@ See [docs/configuration.md](docs/configuration.md) for every option.
 
 **3. Run it**
 
+Put each destination's bearer token in its file, then start the gateway:
+
 ```sh
-export HL7GW_ADMIN_TOKEN=change-me ADT_API_TOKEN=your-api-token
-./hl7gw -config hl7gw.json
+echo your-api-token > adt.token
+./hl7gw run -config hl7gw.json
 ```
 
 **4. Explore the admin API**
 
-For now, at least, the admin API (gated by `admin_api.token` in your config file) is the best way to operate a running instance.
+For now, at least, the admin API (gated by the token in `admin.token_file`) is the best way to operate a running instance.
 
 Run the binary and then open [http://localhost:8081/docs](http://localhost:8081/docs) for the full API reference, with a description of every endpoint.
 
@@ -85,7 +93,8 @@ The main thing to be aware of is that, for now, hl7gw only has one ACK model: on
 
 ```sh
 make build        # bin/hl7gw
-make run          # go run .
+make configure    # go run . configure -output hl7gw.json
+make run          # go run . run -config hl7gw.json
 make check        # lint, unit + e2e tests with a 100% coverage gate & short fuzzing run
 make e2e_tests    # black-box tests against the built binary
 make fuzz FUZZTIME=30s

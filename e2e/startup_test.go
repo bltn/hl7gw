@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,16 +18,28 @@ import (
 const (
 	errorPrefix             = "error:"
 	parsingConfigFileSuffix = "parsing config file"
-	adminAPIOK              = `"admin_api": {"port": 9990, "token_env": "` + harness.AdminTokenEnv + `"}`
+	adminOK                 = `"admin": {"port": 9990, "token_file": "admin.token"}`
 	tlsOffOK                = `"tls": {"mode": "off"}`
-	listenerOK              = `"tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, ` + tlsOffOK + `}`
-	listener9998OK          = `"tcp_listener": {"port": 9998, "idle_timeout_seconds": 86400, ` + tlsOffOK + `}`
-	destinationOK           = `"destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_env": "` + harness.ChannelTokenEnv + `"}}`
+	sourceOK                = `"source": {"port": 9999, "idle_timeout": "24h", ` + tlsOffOK + `}`
+	source9998OK            = `"source": {"port": 9998, "idle_timeout": "24h", ` + tlsOffOK + `}`
+	destinationOK           = `"destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_file": "channel.token"}}`
 )
 
-func expectStartupFailure(t *testing.T, config string, env []string, wantStderr ...string) {
+func expectStartupFailure(t *testing.T, config string, wantStderr ...string) {
 	t.Helper()
-	res, err := harness.RunUntilExit(t, config, env)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if config != "" {
+		if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+	}
+	for name, token := range map[string]string{"admin.token": "e2e-admin-token", "channel.token": "e2e-channel-token"} { //nolint:gosec // G101 -- placeholder tokens for a throwaway test process
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(token+"\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	res, err := harness.RunUntilExit(dir, "", "run", "-config", configPath)
 	if err != nil {
 		t.Fatalf("run gateway: %v", err)
 	}
@@ -58,12 +72,12 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 		},
 		{
 			name:       "unknown log level",
-			body:       `{` + adminAPIOK + `, "log": {"level": "loud"}, "channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
+			body:       `{` + adminOK + `, "log": {"level": "loud"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
 			wantStderr: []string{errorPrefix, `log.level must be one of "debug", "info", "warn", "error", got "loud"`},
 		},
 		{
 			name:       "unknown log format",
-			body:       `{` + adminAPIOK + `, "log": {"format": "xml"}, "channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
+			body:       `{` + adminOK + `, "log": {"format": "xml"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
 			wantStderr: []string{errorPrefix, `log.format must be "auto", "json" or "text", got "xml"`},
 		},
 		{
@@ -77,197 +91,187 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `unknown field "bogus"`},
 		},
 		{
-			name:       "flat pre-tcp_listener channel shape",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "listener_port": 9999, "tcp_idle_timeout_seconds": 86400, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `unknown field "listener_port"`},
+			name:       "pre-rename tcp_listener key",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `unknown field "tcp_listener"`},
+		},
+		{
+			name:       "pre-rename admin_api key",
+			body:       `{"admin_api": {"port": 9990, "token_env": "X"}, "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `unknown field "admin_api"`},
 		},
 		{
 			name:       "negative max_connections",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "max_connections": -1, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "tcp_listener.max_connections must be positive"},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "max_connections": -1, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "source.max_connections must be positive"},
 		},
 		{
-			name:       "negative tls_reload_interval_seconds",
-			body:       `{` + adminAPIOK + `, "tls_reload_interval_seconds": -1, "channels": []}`,
-			wantStderr: []string{errorPrefix, "tls_reload_interval_seconds must be positive, got -1"},
+			name:       "negative cert_reload_interval",
+			body:       `{` + adminOK + `, "cert_reload_interval": "-1s", "channels": []}`,
+			wantStderr: []string{errorPrefix, "cert_reload_interval must be positive, got -1s"},
 		},
 		{
-			name:       "negative idle_timeout_seconds",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": -5, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "channel bad: tcp_listener.idle_timeout_seconds is required and must be positive, got -5"},
+			name:       "negative idle_timeout",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "-5s", ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: source.idle_timeout is required and must be positive, got -5s"},
 		},
 		{
-			name:       "missing idle_timeout_seconds",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "channel bad: tcp_listener.idle_timeout_seconds is required and must be positive, got 0"},
+			name:       "missing idle_timeout",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: source.idle_timeout is required and must be positive, got 0s"},
+		},
+		{
+			name:       "idle_timeout as a number",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": 60, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "cannot unmarshal number into Go struct field Config.channels.0.source.idle_timeout of type config.Duration"},
+		},
+		{
+			name:       "idle_timeout without a unit",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "60", ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `missing unit in duration "60"`},
 		},
 		{
 			name:       "missing tls",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "channel bad: tcp_listener.tls is required"},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h"}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: source.tls is required"},
 		},
 		{
 			name:       "missing tls mode",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, "tls": {}}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, `channel bad: tcp_listener.tls.mode must be "off" or "mtls", got ""`},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h", "tls": {}}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: source.tls.mode must be "off" or "mtls", got ""`},
 		},
 		{
 			name:       "garbage tls mode",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, "tls": {"mode": "tls1.2"}}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, `channel bad: tcp_listener.tls.mode must be "off" or "mtls", got "tls1.2"`},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h", "tls": {"mode": "tls1.2"}}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: source.tls.mode must be "off" or "mtls", got "tls1.2"`},
 		},
 		{
 			name:       "tls min_version of the wrong json type",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, "tls": {"mode": "mtls", "client_ca_path": "ca.pem", "server_cert_path": "cert.pem", "server_pk_path": "key.pem", "min_version": true}}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "cannot unmarshal bool into Go value of type json.Number"},
-		},
-		{
-			name:       "tls min_version quoted garbage",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, "tls": {"mode": "mtls", "client_ca_path": "ca.pem", "server_cert_path": "cert.pem", "server_pk_path": "key.pem", "min_version": "potato"}}, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `cannot unmarshal string "potato" into Go value of type json.Number`},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h", "tls": {"mode": "mtls", "cert_file": "cert.pem", "key_file": "key.pem", "client_ca_file": "ca.pem", "min_version": true}}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "cannot unmarshal bool into Go struct field Config.channels.0.source.tls.min_version of type string"},
 		},
 		{
 			name:       "channel name unsafe as filename",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "a/b", "tcp_listener": {"port": 9999, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "a/b", "source": {"port": 9999, ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
 			wantStderr: []string{errorPrefix, `channel name "a/b" must be non-empty and contain only letters, digits, _ or -`},
 		},
 		{
 			name:       "duplicate channel names",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "twin", ` + listener9998OK + `, ` + destinationOK + `}, {"name": "twin", ` + listenerOK + `, ` + destinationOK + `}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "twin", ` + source9998OK + `, ` + destinationOK + `}, {"name": "twin", ` + sourceOK + `, ` + destinationOK + `}]}`,
 			wantStderr: []string{errorPrefix, "duplicate channel name twin"},
 		},
 		{
-			name:       "duplicate listener ports",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "first", ` + listenerOK + `, ` + destinationOK + `}, {"name": "second", ` + listenerOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "channel second: duplicate tcp_listener.port 9999"},
+			name:       "duplicate source ports",
+			body:       `{` + adminOK + `, "channels": [{"name": "first", ` + sourceOK + `, ` + destinationOK + `}, {"name": "second", ` + sourceOK + `, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel second: duplicate source.port 9999"},
 		},
 		{
-			name:       "negative admin_api port",
-			body:       `{"admin_api": {"port": -1, "token_env": "` + harness.AdminTokenEnv + `"}, "channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "admin_api.port is required and must be positive, got -1"},
+			name:       "negative admin port",
+			body:       `{"admin": {"port": -1, "token_file": "admin.token"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got -1"},
 		},
 		{
-			name:       "missing admin_api",
-			body:       `{"channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "admin_api.port is required and must be positive, got 0"},
+			name:       "missing admin",
+			body:       `{"channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got 0"},
 		},
 		{
-			name:       "missing admin_api port",
-			body:       `{"admin_api": {"token_env": "` + harness.AdminTokenEnv + `"}, "channels": []}`,
-			wantStderr: []string{errorPrefix, "admin_api.port is required and must be positive, got 0"},
+			name:       "missing admin port",
+			body:       `{"admin": {"token_file": "admin.token"}, "channels": []}`,
+			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got 0"},
 		},
 		{
-			name:       "missing admin_api token_env",
-			body:       `{"admin_api": {"port": 9990}, "channels": []}`,
-			wantStderr: []string{errorPrefix, "admin_api.token_env is required and must be non-empty"},
+			name:       "missing admin token_file",
+			body:       `{"admin": {"port": 9990}, "channels": []}`,
+			wantStderr: []string{errorPrefix, "admin.token_file is required and must be non-empty"},
 		},
 		{
-			name:       "empty admin_api token_env",
-			body:       `{"admin_api": {"port": 9990, "token_env": ""}, "channels": []}`,
-			wantStderr: []string{errorPrefix, "admin_api.token_env is required and must be non-empty"},
+			name:       "empty admin token_file",
+			body:       `{"admin": {"port": 9990, "token_file": ""}, "channels": []}`,
+			wantStderr: []string{errorPrefix, "admin.token_file is required and must be non-empty"},
 		},
 		{
 			name:       "channel port collides with admin port",
-			body:       `{"admin_api": {"port": 9999, "token_env": "` + harness.AdminTokenEnv + `"}, "channels": [{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "channel solo: tcp_listener.port 9999 collides with admin_api.port"},
+			body:       `{"admin": {"port": 9999, "token_file": "admin.token"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel solo: source.port 9999 collides with admin.port"},
 		},
 		{
 			name:       "unparseable destination url",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "://not-a-url"}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "://not-a-url"}}]}`,
 			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "missing protocol scheme"},
 		},
 		{
 			name:       "relative destination url",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "not-a-url"}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "not-a-url"}}]}`,
 			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `destination.url must be an absolute http(s) URL, got "not-a-url"`},
 		},
 		{
 			name:       "non-http destination url scheme",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "ftp://127.0.0.1/ingest"}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "ftp://127.0.0.1/ingest"}}]}`,
 			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "destination.url must be an absolute http(s) URL"},
 		},
 		{
 			name:       "missing destination",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `}]}`,
 			wantStderr: []string{errorPrefix, "channel bad: destination.url is required"},
 		},
 		{
 			name:       "missing destination url",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"auth": {"type": "bearer", "token_env": "` + harness.ChannelTokenEnv + `"}}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"auth": {"type": "bearer", "token_file": "channel.token"}}}]}`,
 			wantStderr: []string{errorPrefix, "channel bad: destination.url is required"},
 		},
 		{
 			name:       "missing destination auth",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "http://127.0.0.1:1/"}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/"}}]}`,
 			wantStderr: []string{errorPrefix, "channel bad: destination.auth is required"},
 		},
 		{
 			name:       "missing auth type",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"token_env": "` + harness.ChannelTokenEnv + `"}}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"token_file": "channel.token"}}}]}`,
 			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "bearer", got ""`},
 		},
 		{
 			name:       "unknown auth type",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "token_env": "` + harness.ChannelTokenEnv + `"}}}]}`,
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "token_file": "channel.token"}}}]}`,
 			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "bearer", got "basic"`},
 		},
 		{
-			name:       "missing auth token_env",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer"}}}]}`,
-			wantStderr: []string{errorPrefix, "channel bad: destination.auth.token_env is required and must be non-empty"},
+			name:       "missing auth token_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer"}}}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: destination.auth.token_file is required and must be non-empty"},
 		},
 		{
-			name:       "empty auth token_env",
-			body:       `{` + adminAPIOK + `, "channels": [{"name": "bad", ` + listenerOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_env": ""}}}]}`,
-			wantStderr: []string{errorPrefix, "channel bad: destination.auth.token_env is required and must be non-empty"},
+			name:       "empty auth token_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_file": ""}}}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: destination.auth.token_file is required and must be non-empty"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			expectStartupFailure(t, tc.body, harness.StartupEnv(), tc.wantStderr...)
+			expectStartupFailure(t, tc.body, tc.wantStderr...)
 		})
 	}
 }
 
-func TestExitsWhenAdminTokenUnresolvable(t *testing.T) {
+func TestExitsWhenTokenFileUnusable(t *testing.T) {
 	t.Parallel()
-	cfg := `{"admin_api": {"port": 9990, "token_env": "E2E_ADMIN_TOKEN"}, "channels": [
-		{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}
-	]}`
-
-	tests := []struct {
-		name string
-		env  []string
-	}{
-		{name: "unset", env: harness.Env(map[string]string{harness.ChannelTokenEnv: "e2e-channel-token"}, "E2E_ADMIN_TOKEN")},
-		{name: "set but empty", env: harness.Env(map[string]string{harness.ChannelTokenEnv: "e2e-channel-token", "E2E_ADMIN_TOKEN": ""})},
+	channel := func(tokenFile string) string {
+		return `"channels": [{"name": "solo", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_file": ` + tokenFile + `}}}]`
 	}
-
+	tests := []struct {
+		name       string
+		body       string
+		wantStderr string
+	}{
+		{"admin token file missing", `{"admin": {"port": 9990, "token_file": "missing.token"}, ` + channel(`"channel.token"`) + `}`, "admin: reading token file: open missing.token: no such file or directory"},
+		{"admin token file empty", `{"admin": {"port": 9990, "token_file": "/dev/null"}, ` + channel(`"channel.token"`) + `}`, "admin: token file /dev/null is empty"},
+		{"channel token file missing", `{` + adminOK + `, ` + channel(`"missing.token"`) + `}`, "channel solo: reading token file: open missing.token: no such file or directory"},
+		{"channel token file empty", `{` + adminOK + `, ` + channel(`"/dev/null"`) + `}`, "channel solo: token file /dev/null is empty"},
+	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			expectStartupFailure(t, cfg, tc.env, "E2E_ADMIN_TOKEN must be set to a non-empty bearer token")
-		})
-	}
-}
-
-func TestExitsWhenChannelTokenUnresolvable(t *testing.T) {
-	t.Parallel()
-	cfg := `{` + adminAPIOK + `, "channels": [
-		{"name": "solo", ` + listenerOK + `, ` + destinationOK + `}
-	]}`
-
-	tests := []struct {
-		name string
-		env  []string
-	}{
-		{name: "unset", env: harness.Env(map[string]string{harness.AdminTokenEnv: "e2e-admin-token"}, harness.ChannelTokenEnv)},
-		{name: "set but empty", env: harness.Env(map[string]string{harness.AdminTokenEnv: "e2e-admin-token", harness.ChannelTokenEnv: ""})},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			expectStartupFailure(t, cfg, tc.env, "channel solo: "+harness.ChannelTokenEnv+" must be set to a non-empty bearer token")
+			expectStartupFailure(t, tc.body, errorPrefix, tc.wantStderr)
 		})
 	}
 }
@@ -288,12 +292,12 @@ func TestUnwindsListenersOnPortCollision(t *testing.T) {
 	}
 	freePort, apiPort := ports[0], ports[1]
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin_api": {"port": %d, "token_env": "`+harness.AdminTokenEnv+`"}, "channels": [
-		{"name": "first", "tcp_listener": {"port": %d, "idle_timeout_seconds": 86400, `+tlsOffOK+`}, `+destinationOK+`},
-		{"name": "second", "tcp_listener": {"port": %d, "idle_timeout_seconds": 86400, `+tlsOffOK+`}, `+destinationOK+`}
+	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": %d, "token_file": "admin.token"}, "channels": [
+		{"name": "first", "source": {"port": %d, "idle_timeout": "24h", `+tlsOffOK+`}, `+destinationOK+`},
+		{"name": "second", "source": {"port": %d, "idle_timeout": "24h", `+tlsOffOK+`}, `+destinationOK+`}
 	]}`, t.TempDir(), apiPort, freePort, blockedPort)
 
-	expectStartupFailure(t, cfg, harness.StartupEnv(), errorPrefix, "channel second", "address already in use")
+	expectStartupFailure(t, cfg, errorPrefix, "channel second", "address already in use")
 
 	d := net.Dialer{Timeout: time.Second}
 	conn, err := d.DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", freePort))

@@ -16,7 +16,7 @@ servers:
         description: Host the admin API is bound to.
       port:
         default: "8080"
-        description: Port configured via admin_api.port.
+        description: Port configured via admin.port.
 security:
   - bearerAuth: []
 tags:
@@ -144,21 +144,21 @@ paths:
               example:
                 channels:
                   - name: adt
-                    tcp_listener:
+                    source:
                       max_connections: 10
                       port: 2575
-                      idle_timeout_seconds: 86400
+                      idle_timeout: 24h
                       tls:
                         mode: mtls
-                        client_ca_path: ./client-ca.pem
-                        server_cert_path: ./server-cert.pem
-                        server_pk_path: ./server-key.pem
-                        min_version: 1.2
+                        cert_file: ./server-cert.pem
+                        key_file: ./server-key.pem
+                        client_ca_file: ./client-ca.pem
+                        min_version: "1.2"
                     destination:
                       url: https://ehr.example.internal/hl7
                       auth:
                         type: bearer
-                        token_env: EHR_TOKEN
+                        token_file: /etc/hl7gw/ehr.token
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -351,7 +351,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Token from the environment variable named by admin_api.token_env in the config file.
+      description: Contents of the file named by admin.token_file in the config file.
   headers:
     Allow:
       description: Methods this endpoint accepts.
@@ -728,19 +728,19 @@ components:
     Channel:
       type: object
       description: A configured inbound MLLP channel.
-      required: [name, tcp_listener, destination]
+      required: [name, source, destination]
       properties:
         name:
           type: string
           pattern: '^[a-zA-Z0-9_-]+$'
-        tcp_listener:
-          $ref: '#/components/schemas/TCPListener'
+        source:
+          $ref: '#/components/schemas/Source'
         destination:
           $ref: '#/components/schemas/Destination'
-    TCPListener:
+    Source:
       type: object
-      description: The inbound TCP listener a channel accepts MLLP traffic on.
-      required: [max_connections, port, idle_timeout_seconds, tls]
+      description: The inbound MLLP listener a channel accepts traffic on.
+      required: [max_connections, port, idle_timeout, tls]
       properties:
         max_connections:
           type: integer
@@ -752,36 +752,36 @@ components:
           format: int32
           minimum: 1
           maximum: 65535
-        idle_timeout_seconds:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 31536000
+        idle_timeout:
+          type: string
+          description: A Go duration string such as 30s, 1m or 2h.
+          pattern: '^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$'
         tls:
           $ref: '#/components/schemas/ChannelTLS'
     ChannelTLS:
       type: object
       description: >-
-        TLS settings for a channel's TCP listener. When mode is mtls, the
+        TLS settings for a channel's listener. When mode is mtls, the
         gateway serves the configured certificate and requires-and-verifies
-        client certificates against the client CA pool; the path and
+        client certificates against the client CA pool; the file and
         min_version fields are only present in mtls mode.
       required: [mode]
       properties:
         mode:
           type: string
           enum: ['off', mtls]
-        client_ca_path:
+        cert_file:
           type: string
           pattern: '^.+$'
-        server_cert_path:
+        key_file:
           type: string
           pattern: '^.+$'
-        server_pk_path:
+        client_ca_file:
           type: string
           pattern: '^.+$'
         min_version:
-          type: number
+          type: string
+          enum: ['1.2', '1.3']
     Destination:
       type: object
       description: The downstream HTTP endpoint a channel forwards to.
@@ -793,17 +793,17 @@ components:
         auth:
           type: object
           description: >-
-            How the gateway authenticates to the destination. token_env is the
-            name of the environment variable the token is read from; the token
-            value itself never appears in this API.
-          required: [type, token_env]
+            How the gateway authenticates to the destination. token_file is
+            the path the token is read from; the token value itself never
+            appears in this API.
+          required: [type, token_file]
           properties:
             type:
               type: string
               enum: [bearer]
-            token_env:
+            token_file:
               type: string
-              pattern: '^[A-Za-z_][A-Za-z0-9_]*$'
+              pattern: '^.+$'
     ChannelList:
       type: object
       description: All channels configured on the gateway.

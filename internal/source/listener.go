@@ -54,14 +54,14 @@ func BindListeners(ctx context.Context, cfg config.Config, log *slog.Logger, m *
 	}
 
 	for _, ch := range cfg.Channels {
-		ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", ch.TCPListener.Port))
+		ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", ch.Source.Port))
 		if err != nil {
 			for _, b := range listeners {
 				_ = b.ln.Close()
 			}
 			return nil, fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
-		listeners = append(listeners, &BoundListener{ch: ch, ln: ln, tlsCfg: ch.TCPListener.TLS.ServerConfig(), log: log.With("channel", ch.Name), m: m.Channel(ch.Name)})
+		listeners = append(listeners, &BoundListener{ch: ch, ln: ln, tlsCfg: ch.Source.TLS.ServerConfig(), log: log.With("channel", ch.Name), m: m.Channel(ch.Name)})
 	}
 
 	return listeners, nil
@@ -87,9 +87,9 @@ func (bl *BoundListener) Serve(ctx, drain context.Context, h Handler) error {
 }
 
 func (bl *BoundListener) logListening() {
-	attrs := []any{"addr", bl.ln.Addr().String(), "tls", bl.ch.TCPListener.TLS.Mode}
+	attrs := []any{"addr", bl.ln.Addr().String(), "tls", bl.ch.Source.TLS.Mode}
 	if bl.tlsCfg != nil {
-		leaf := bl.ch.TCPListener.TLS.ServerLeaf()
+		leaf := bl.ch.Source.TLS.ServerLeaf()
 		bl.m.TLSCertExpiry.Set(float64(leaf.NotAfter.Unix()))
 		attrs = append(attrs, "serial", leaf.SerialNumber.String(), "expires", leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
@@ -97,13 +97,13 @@ func (bl *BoundListener) logListening() {
 }
 
 func (bl *BoundListener) acceptLoop(ctx, drain context.Context, h Handler) error {
-	gate := newConnGate(bl.ch.TCPListener.MaxConnections)
+	gate := newConnGate(bl.ch.Source.MaxConnections)
 	defer gate.wait()
 
 	for {
 		if !gate.tryAcquire() {
 			bl.m.AcceptPaused.Set(1)
-			bl.log.Warn("at tcp conn capacity, pausing accepts", "max", bl.ch.TCPListener.MaxConnections)
+			bl.log.Warn("at tcp conn capacity, pausing accepts", "max", bl.ch.Source.MaxConnections)
 			if !gate.acquire(ctx) {
 				return nil
 			}
@@ -225,7 +225,7 @@ func (bl *BoundListener) accept(ctx context.Context) (net.Conn, error) {
 func (bl *BoundListener) handleConn(ctx context.Context, guard *msgGuard, h Handler, conn net.Conn) (int, error) {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
-	idle := time.Duration(bl.ch.TCPListener.IdleTimeoutSeconds) * time.Second
+	idle := time.Duration(bl.ch.Source.IdleTimeout)
 
 	for messages := 0; ; messages++ {
 		_ = conn.SetReadDeadline(time.Now().Add(idle))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/bltn/hl7gw/e2e/internal/harness"
 )
@@ -18,7 +19,7 @@ func TestAPIListsChannels(t *testing.T) {
 	}
 	sink := harness.NewSink(t, http.StatusOK, "")
 	gw, err := harness.StartGateway(t,
-		harness.Channel{Name: channelName, DestURL: sink.URL(), MaxTCPConns: 7, TCPIdleTimeoutSecs: 3600},
+		harness.Channel{Name: channelName, DestURL: sink.URL(), MaxTCPConns: 7, IdleTimeout: time.Hour},
 		harness.Channel{Name: secureChannel, DestURL: sink.URL(), TLS: ct},
 	)
 	if err != nil {
@@ -42,25 +43,25 @@ func TestAPIListsChannels(t *testing.T) {
 	}
 
 	plain := body.Channels[0]
-	if plain.Name != channelName || plain.TCPListener.MaxConnections != 7 || plain.TCPListener.IdleTimeoutSeconds != 3600 || plain.TCPListener.Port == 0 || plain.Destination.URL != sink.URL() {
-		t.Errorf("channel = %+v, want %s with 7 conns, 3600s idle timeout and destination %s", plain, channelName, sink.URL())
+	if plain.Name != channelName || plain.Source.MaxConnections != 7 || plain.Source.IdleTimeout != "1h" || plain.Source.Port == 0 || plain.Destination.URL != sink.URL() {
+		t.Errorf("channel = %+v, want %s with 7 conns, 1h idle timeout and destination %s", plain, channelName, sink.URL())
 	}
-	if plain.Destination.Auth.Type != "bearer" || plain.Destination.Auth.TokenEnv != harness.ChannelTokenEnv {
-		t.Errorf("auth = %+v, want bearer via %s", plain.Destination.Auth, harness.ChannelTokenEnv)
+	if plain.Destination.Auth.Type != "bearer" || plain.Destination.Auth.TokenFile != gw.ChannelTokenFile() {
+		t.Errorf("auth = %+v, want bearer from %s", plain.Destination.Auth, gw.ChannelTokenFile())
 	}
-	if plain.TCPListener.TLS != (apiChannelTLS{Mode: "off"}) {
-		t.Errorf("plaintext channel tls = %+v, want mode off with no other fields", plain.TCPListener.TLS)
+	if plain.Source.TLS != (apiChannelTLS{Mode: "off"}) {
+		t.Errorf("plaintext channel tls = %+v, want mode off with no other fields", plain.Source.TLS)
 	}
 
 	secure := body.Channels[1]
 	want := apiChannelTLS{
-		Mode:           "mtls",
-		ClientCAPath:   ct.ClientCAPath,
-		ServerCertPath: ct.ServerCertPath,
-		ServerPKPath:   ct.ServerPKPath,
-		MinVersion:     json.Number("1.2"),
+		Mode:         "mtls",
+		CertFile:     ct.CertFile,
+		KeyFile:      ct.KeyFile,
+		ClientCAFile: ct.ClientCAFile,
+		MinVersion:   "1.2",
 	}
-	if secure.Name != secureChannel || secure.TCPListener.TLS != want {
+	if secure.Name != secureChannel || secure.Source.TLS != want {
 		t.Errorf("mtls channel = %+v, want tls %+v", secure, want)
 	}
 }

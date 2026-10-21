@@ -207,7 +207,7 @@ func TestFinishesInFlightFrameOnShutdown(t *testing.T) {
 	t.Parallel()
 
 	sink := harness.NewSink(t, http.StatusOK, sinkBody)
-	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL(), TCPIdleTimeoutSecs: 3})
+	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL(), IdleTimeout: 3 * time.Second})
 	if err != nil {
 		t.Fatalf("start gateway: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestForcesShutdownAtDeadline(t *testing.T) {
 	t.Parallel()
 
 	sink := harness.NewSink(t, http.StatusOK, "")
-	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL(), TCPIdleTimeoutSecs: 3})
+	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL(), IdleTimeout: 3 * time.Second})
 	if err != nil {
 		t.Fatalf("start gateway: %v", err)
 	}

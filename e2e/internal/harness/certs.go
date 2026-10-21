@@ -35,13 +35,13 @@ type Leaf struct {
 }
 
 type ChannelTLS struct {
-	ClientCAPath   string
-	ServerCertPath string
-	ServerPKPath   string
-	MinVersion     string
-	CA             *CA
-	ServerLeaf     *Leaf
-	ClientLeaf     *Leaf
+	CertFile     string
+	KeyFile      string
+	ClientCAFile string
+	MinVersion   string
+	CA           *CA
+	ServerLeaf   *Leaf
+	ClientLeaf   *Leaf
 }
 
 func NewMTLS(t *testing.T) (*ChannelTLS, error) {
@@ -58,18 +58,18 @@ func NewMTLS(t *testing.T) (*ChannelTLS, error) {
 		return nil, err
 	}
 	return &ChannelTLS{
-		ClientCAPath:   ca.CertPath,
-		ServerCertPath: server.CertPath,
-		ServerPKPath:   server.KeyPath,
-		MinVersion:     "1.2",
-		CA:             ca,
-		ServerLeaf:     server,
-		ClientLeaf:     client,
+		CertFile:     server.CertPath,
+		KeyFile:      server.KeyPath,
+		ClientCAFile: ca.CertPath,
+		MinVersion:   "1.2",
+		CA:           ca,
+		ServerLeaf:   server,
+		ClientLeaf:   client,
 	}, nil
 }
 
 func (ct *ChannelTLS) RotateServerLeaf() (*Leaf, error) {
-	leaf, err := ct.CA.issue("server", filepath.Base(ct.ServerCertPath), filepath.Base(ct.ServerPKPath))
+	leaf, err := ct.CA.issue("server", filepath.Base(ct.CertFile), filepath.Base(ct.KeyFile))
 	if err != nil {
 		return nil, err
 	}

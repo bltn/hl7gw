@@ -20,8 +20,8 @@ func TestClosesIdleConnsPerChannelTimeout(t *testing.T) {
 		t.Fatalf("dead destination url: %v", err)
 	}
 	gw, err := harness.StartGateway(t,
-		harness.Channel{Name: "fast", DestURL: destURL, TCPIdleTimeoutSecs: 5},
-		harness.Channel{Name: "slow", DestURL: destURL, TCPIdleTimeoutSecs: 10},
+		harness.Channel{Name: "fast", DestURL: destURL, IdleTimeout: 5 * time.Second},
+		harness.Channel{Name: "slow", DestURL: destURL, IdleTimeout: 10 * time.Second},
 	)
 	if err != nil {
 		t.Fatalf("start gateway: %v", err)

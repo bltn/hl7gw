@@ -45,7 +45,7 @@ func TestExitsOnInvalidChannelTLS(t *testing.T) {
 	bogusDERCA := writeFile("bogus-der-ca.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not real der")}))
 	garbageCert := writeFile("garbage-cert.pem", []byte("not a certificate"))
 
-	goodTLS := mtlsJSON(ctA.ClientCAPath, ctA.ServerCertPath, ctA.ServerPKPath, "1.2")
+	goodTLS := mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile, "1.2")
 
 	tests := []struct {
 		name       string
@@ -53,91 +53,96 @@ func TestExitsOnInvalidChannelTLS(t *testing.T) {
 		wantStderr []string
 	}{
 		{
-			name:       "missing client_ca_path",
-			badTLS:     fmt.Sprintf(`{"mode": "mtls", "server_cert_path": %q, "server_pk_path": %q, "min_version": 1.2}`, ctA.ServerCertPath, ctA.ServerPKPath),
-			wantStderr: []string{"channel bad: tcp_listener.tls.client_ca_path is required and must be non-empty"},
+			name:       "missing client_ca_file",
+			badTLS:     fmt.Sprintf(`{"mode": "mtls", "cert_file": %q, "key_file": %q, "min_version": "1.2"}`, ctA.CertFile, ctA.KeyFile),
+			wantStderr: []string{"channel bad: source.tls.client_ca_file is required and must be non-empty"},
 		},
 		{
-			name:       "missing server_cert_path",
-			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_path": %q, "server_pk_path": %q, "min_version": 1.2}`, ctA.ClientCAPath, ctA.ServerPKPath),
-			wantStderr: []string{"channel bad: tcp_listener.tls.server_cert_path is required and must be non-empty"},
+			name:       "missing cert_file",
+			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_file": %q, "key_file": %q, "min_version": "1.2"}`, ctA.ClientCAFile, ctA.KeyFile),
+			wantStderr: []string{"channel bad: source.tls.cert_file is required and must be non-empty"},
 		},
 		{
-			name:       "missing server_pk_path",
-			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_path": %q, "server_cert_path": %q, "min_version": 1.2}`, ctA.ClientCAPath, ctA.ServerCertPath),
-			wantStderr: []string{"channel bad: tcp_listener.tls.server_pk_path is required and must be non-empty"},
+			name:       "missing key_file",
+			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_file": %q, "cert_file": %q, "min_version": "1.2"}`, ctA.ClientCAFile, ctA.CertFile),
+			wantStderr: []string{"channel bad: source.tls.key_file is required and must be non-empty"},
 		},
 		{
 			name:       "missing min_version",
-			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_path": %q, "server_cert_path": %q, "server_pk_path": %q}`, ctA.ClientCAPath, ctA.ServerCertPath, ctA.ServerPKPath),
-			wantStderr: []string{"channel bad: tcp_listener.tls.min_version is required"},
+			badTLS:     fmt.Sprintf(`{"mode": "mtls", "client_ca_file": %q, "cert_file": %q, "key_file": %q}`, ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile),
+			wantStderr: []string{"channel bad: source.tls.min_version is required"},
+		},
+		{
+			name:       "garbage min_version",
+			badTLS:     mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile, "potato"),
+			wantStderr: []string{`channel bad: invalid tls min_version "potato", valid versions: 1.2, 1.3`},
 		},
 		{
 			name:       "unknown min_version",
-			badTLS:     mtlsJSON(ctA.ClientCAPath, ctA.ServerCertPath, ctA.ServerPKPath, "7"),
+			badTLS:     mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile, "7"),
 			wantStderr: []string{`channel bad: invalid tls min_version "7", valid versions: 1.2, 1.3`},
 		},
 		{
 			name:       "unsupported min_version 1.4",
-			badTLS:     mtlsJSON(ctA.ClientCAPath, ctA.ServerCertPath, ctA.ServerPKPath, "1.4"),
+			badTLS:     mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile, "1.4"),
 			wantStderr: []string{`channel bad: invalid tls min_version "1.4", valid versions: 1.2, 1.3`},
 		},
 		{
 			name:       "deprecated min_version 1.1",
-			badTLS:     mtlsJSON(ctA.ClientCAPath, ctA.ServerCertPath, ctA.ServerPKPath, "1.1"),
+			badTLS:     mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctA.KeyFile, "1.1"),
 			wantStderr: []string{`channel bad: invalid tls min_version "1.1", valid versions: 1.2, 1.3`},
 		},
 		{
 			name:       "server cert and key mismatch",
-			badTLS:     mtlsJSON(ctA.ClientCAPath, ctA.ServerCertPath, ctB.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(ctA.ClientCAFile, ctA.CertFile, ctB.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: loading server certificate and key", "private key does not match public key"},
 		},
 		{
 			name:       "garbage server cert file",
-			badTLS:     mtlsJSON(ctA.ClientCAPath, garbageCert, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(ctA.ClientCAFile, garbageCert, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: loading server certificate and key"},
 		},
 		{
 			name:       "missing client CA file",
-			badTLS:     mtlsJSON(filepath.Join(dir, "does-not-exist.pem"), ctA.ServerCertPath, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(filepath.Join(dir, "does-not-exist.pem"), ctA.CertFile, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: reading client CA file", "no such file or directory"},
 		},
 		{
 			name:       "empty client CA file",
-			badTLS:     mtlsJSON(emptyCA, ctA.ServerCertPath, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(emptyCA, ctA.CertFile, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: client CA file contains no certificates"},
 		},
 		{
 			name:       "garbage client CA file",
-			badTLS:     mtlsJSON(garbageCA, ctA.ServerCertPath, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(garbageCA, ctA.CertFile, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: client CA file has trailing data after the last PEM block"},
 		},
 		{
 			name:       "client CA file with trailing garbage",
-			badTLS:     mtlsJSON(trailingCA, ctA.ServerCertPath, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(trailingCA, ctA.CertFile, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: client CA file has trailing data after the last PEM block"},
 		},
 		{
 			name:       "client CA PEM block with bogus DER",
-			badTLS:     mtlsJSON(bogusDERCA, ctA.ServerCertPath, ctA.ServerPKPath, "1.2"),
+			badTLS:     mtlsJSON(bogusDERCA, ctA.CertFile, ctA.KeyFile, "1.2"),
 			wantStderr: []string{"channel bad: parsing CA certificate 1"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			body := `{` + adminAPIOK + `, "channels": [
-				{"name": "good", "tcp_listener": {"port": 9998, "idle_timeout_seconds": 86400, "tls": ` + goodTLS + `}, ` + destinationOK + `},
-				{"name": "bad", "tcp_listener": {"port": 9999, "idle_timeout_seconds": 86400, "tls": ` + tc.badTLS + `}, ` + destinationOK + `}
+			body := `{` + adminOK + `, "channels": [
+				{"name": "good", "source": {"port": 9998, "idle_timeout": "24h", "tls": ` + goodTLS + `}, ` + destinationOK + `},
+				{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h", "tls": ` + tc.badTLS + `}, ` + destinationOK + `}
 			]}`
-			expectStartupFailure(t, body, harness.StartupEnv(), tc.wantStderr...)
+			expectStartupFailure(t, body, tc.wantStderr...)
 		})
 	}
 }
 
 func mtlsJSON(caPath, certPath, keyPath, minVersion string) string {
-	return fmt.Sprintf(`{"mode": "mtls", "client_ca_path": %q, "server_cert_path": %q, "server_pk_path": %q, "min_version": %s}`,
-		caPath, certPath, keyPath, minVersion)
+	return fmt.Sprintf(`{"mode": "mtls", "cert_file": %q, "key_file": %q, "client_ca_file": %q, "min_version": %q}`,
+		certPath, keyPath, caPath, minVersion)
 }
 
 func TestMTLSMessageFlow(t *testing.T) {
@@ -481,13 +486,13 @@ func TestMTLSKeepsServingWhenReloadFails(t *testing.T) {
 		{
 			name: "cert garbage",
 			corrupt: func(ct, _ *harness.ChannelTLS) error {
-				return os.WriteFile(ct.ServerCertPath, []byte("not a certificate"), 0o600)
+				return os.WriteFile(ct.CertFile, []byte("not a certificate"), 0o600)
 			},
 		},
 		{
 			name: "key from different pair",
 			corrupt: func(ct, other *harness.ChannelTLS) error {
-				return os.WriteFile(ct.ServerPKPath, other.ServerLeaf.KeyPEM, 0o600)
+				return os.WriteFile(ct.KeyFile, other.ServerLeaf.KeyPEM, 0o600)
 			},
 		},
 	}
@@ -569,7 +574,7 @@ func TestMTLSKeepsVerifyingWhenCAReloadFails(t *testing.T) {
 				}
 			}()
 
-			if err := os.WriteFile(ct.ClientCAPath, tc.contents, 0o600); err != nil {
+			if err := os.WriteFile(ct.ClientCAFile, tc.contents, 0o600); err != nil {
 				t.Fatalf("corrupt client ca on disk: %v", err)
 			}
 			if !gw.WaitForLog(10*time.Second, isMsgOn(msgCAReloadFailed, secureChannel)) {
@@ -615,7 +620,7 @@ func TestMTLSServerCertRotationSurvivesCAReloadFailure(t *testing.T) {
 		}
 	}()
 
-	if err := os.WriteFile(ct.ClientCAPath, []byte("not a pem file"), 0o600); err != nil {
+	if err := os.WriteFile(ct.ClientCAFile, []byte("not a pem file"), 0o600); err != nil {
 		t.Fatalf("corrupt client ca on disk: %v", err)
 	}
 	newLeaf, err := ct.RotateServerLeaf()
@@ -684,10 +689,10 @@ func TestMTLSReloadSilentWhenUnchanged(t *testing.T) {
 	time.Sleep(twoReloadTicks)
 	assertSilent("unchanged files")
 
-	if err := harness.WriteFileAtomic(ct.ClientCAPath, ct.CA.CertPEM); err != nil {
+	if err := harness.WriteFileAtomic(ct.ClientCAFile, ct.CA.CertPEM); err != nil {
 		t.Fatalf("rewrite client ca: %v", err)
 	}
-	if err := harness.WriteFileAtomic(ct.ServerCertPath, ct.ServerLeaf.CertPEM); err != nil {
+	if err := harness.WriteFileAtomic(ct.CertFile, ct.ServerLeaf.CertPEM); err != nil {
 		t.Fatalf("rewrite server cert: %v", err)
 	}
 

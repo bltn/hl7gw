@@ -1,12 +1,17 @@
 GOLANGCI_LINT ?= go tool golangci-lint
 VACUUM ?= go tool vacuum
 FUZZTIME ?= 10s
+CONFIG ?= hl7gw.json
 FUZZ_PKGS = ./internal/hl7 ./internal/mllp
 DIST_TARGETS = linux:amd64:Linux_x86_64 linux:arm64:Linux_aarch64 darwin:amd64:Darwin_x86_64 darwin:arm64:Darwin_arm64
 
 .PHONY: run
 run:
-	go run .
+	go run . run -config $(CONFIG)
+
+.PHONY: configure
+configure:
+	go run . configure -output $(CONFIG)
 
 .PHONY: build
 build:

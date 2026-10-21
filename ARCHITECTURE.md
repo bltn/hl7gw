@@ -35,7 +35,7 @@ handled in the order they arrive.
   (64 by default). At the limit it stops accepting until a connection closes,
   and `hl7gw_accept_paused` reads 1.
 - **A sender goes quiet.** An idle connection is closed after
-  `idle_timeout_seconds`. A frame that starts but doesn't finish within 30 s
+  `idle_timeout`. A frame that starts but doesn't finish within 30 s
   also closes the connection.
 - **The process crashes or loses power.** Every message is committed to disk
   (SQLite WAL, `synchronous=FULL`) before it's parsed, so nothing a sender
@@ -103,11 +103,11 @@ segment, field, component and subcomponent. There are no per-version or
 per-message-type schemas to maintain, and your API picks out the fields it
 needs.
 
-### Secrets come from the environment
+### Secrets live in files
 
-The config file names environment variables and never holds tokens, so it can
-be committed and reviewed like any other file. Missing or empty variables
-stop startup, so a misconfiguration can't fail later at runtime.
+The config file names token files and never holds tokens, so it can be
+committed and reviewed like any other file. A missing or empty token file
+stops startup, so a misconfiguration can't fail later at runtime.
 
 ### What the roadmap changes
 
@@ -119,11 +119,14 @@ decisions above. It's a deliberate next step, not a fix.
 ## Code map
 
 ```
-main.go                 flags and signal handling; calls gateway.Run
+main.go                 subcommand dispatch (run, configure), flags and signal handling
 internal/gateway        composition root: wires config, stores, listeners and the admin API;
                         maps a processing outcome to an ACK code
-internal/config         loads and validates the JSON config, resolves tokens, loads TLS
+internal/configure      the interactive wizard behind `hl7gw configure`; writes a config
+                        that config.Load accepts
+internal/config         loads and validates the JSON config, reads token files, loads TLS
                         material and hot-reloads it
+internal/console        terminal detection, colour and the text log handler
 internal/source         MLLP listeners: accept loop, connection cap, TLS handshake,
                         the per-connection read → handle → ACK loop, shutdown drain
 internal/mllp           MLLP framing

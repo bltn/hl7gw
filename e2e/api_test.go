@@ -66,30 +66,30 @@ type apiMessagesPage struct {
 type destination struct {
 	URL  string `json:"url"`
 	Auth struct {
-		Type     string `json:"type"`
-		TokenEnv string `json:"token_env"`
+		Type      string `json:"type"`
+		TokenFile string `json:"token_file"`
 	} `json:"auth"`
 }
 
 type apiChannelTLS struct {
-	Mode           string      `json:"mode"`
-	ClientCAPath   string      `json:"client_ca_path"`
-	ServerCertPath string      `json:"server_cert_path"`
-	ServerPKPath   string      `json:"server_pk_path"`
-	MinVersion     json.Number `json:"min_version"`
+	Mode         string `json:"mode"`
+	CertFile     string `json:"cert_file"`
+	KeyFile      string `json:"key_file"`
+	ClientCAFile string `json:"client_ca_file"`
+	MinVersion   string `json:"min_version"`
 }
 
-type apiTCPListener struct {
-	MaxConnections     int           `json:"max_connections"`
-	Port               int           `json:"port"`
-	IdleTimeoutSeconds int           `json:"idle_timeout_seconds"`
-	TLS                apiChannelTLS `json:"tls"`
+type apiSource struct {
+	MaxConnections int           `json:"max_connections"`
+	Port           int           `json:"port"`
+	IdleTimeout    string        `json:"idle_timeout"`
+	TLS            apiChannelTLS `json:"tls"`
 }
 
 type apiChannel struct {
-	Name        string         `json:"name"`
-	TCPListener apiTCPListener `json:"tcp_listener"`
-	Destination destination    `json:"destination"`
+	Name        string      `json:"name"`
+	Source      apiSource   `json:"source"`
+	Destination destination `json:"destination"`
 }
 
 type apiChannelsPage struct {
@@ -364,10 +364,10 @@ func TestExitsWhenAPIPortUnavailable(t *testing.T) {
 	defer func() { _ = blocker.Close() }()
 	blockedPort := blocker.Addr().(*net.TCPAddr).Port
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin_api": {"port": %d, "token_env": "`+harness.AdminTokenEnv+`"}, "channels": [
-		{"name": "solo", `+listenerOK+`, `+destinationOK+`}
+	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": %d, "token_file": "admin.token"}, "channels": [
+		{"name": "solo", `+sourceOK+`, `+destinationOK+`}
 	]}`, t.TempDir(), blockedPort)
-	expectStartupFailure(t, cfg, harness.StartupEnv(), errorPrefix, "binding admin api listener", addrInUse)
+	expectStartupFailure(t, cfg, errorPrefix, "binding admin api listener", addrInUse)
 }
 
 func TestUnwindsAPIListenerOnChannelPortCollision(t *testing.T) {
@@ -386,10 +386,10 @@ func TestUnwindsAPIListenerOnChannelPortCollision(t *testing.T) {
 	}
 	apiPort := ports[0]
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin_api": {"port": %d, "token_env": "`+harness.AdminTokenEnv+`"}, "channels": [
-		{"name": "solo", "tcp_listener": {"port": %d, "idle_timeout_seconds": 86400, `+tlsOffOK+`}, `+destinationOK+`}
+	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": %d, "token_file": "admin.token"}, "channels": [
+		{"name": "solo", "source": {"port": %d, "idle_timeout": "24h", `+tlsOffOK+`}, `+destinationOK+`}
 	]}`, t.TempDir(), apiPort, blockedPort)
-	expectStartupFailure(t, cfg, harness.StartupEnv(), errorPrefix, "channel solo", addrInUse)
+	expectStartupFailure(t, cfg, errorPrefix, "channel solo", addrInUse)
 
 	d := net.Dialer{Timeout: time.Second}
 	conn, err := d.DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", apiPort))

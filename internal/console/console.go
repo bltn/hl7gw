@@ -53,6 +53,10 @@ func (t Terminal) Banner(w io.Writer) {
 	_, _ = io.WriteString(w, paint(t.Color, ansiCyan, banner)+"\n")
 }
 
+func (t Terminal) Dim(s string) string     { return paint(t.Color, ansiDim, s) }
+func (t Terminal) Alert(s string) string   { return paint(t.Color, ansiRed, s) }
+func (t Terminal) Success(s string) string { return paint(t.Color, ansiGreen, s) }
+
 func (t Terminal) Handler(w io.Writer, level slog.Level) slog.Handler {
 	return &handler{w: w, mu: &sync.Mutex{}, level: level, color: t.Color}
 }

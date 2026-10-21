@@ -63,7 +63,7 @@ func (b *lockedBuffer) String() string {
 func newTestListener(steps []acceptStep) (*BoundListener, *lockedBuffer) {
 	stderr := &lockedBuffer{}
 	return &BoundListener{
-		ch:  config.Channel{Name: "test", TCPListener: config.TCPListener{MaxConnections: 1}},
+		ch:  config.Channel{Name: "test", Source: config.Source{MaxConnections: 1}},
 		m:   metrics.New("test", "").Channel("test"),
 		ln:  &fakeListener{steps: steps},
 		log: slog.New(slog.NewTextHandler(stderr, nil)),

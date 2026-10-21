@@ -27,7 +27,7 @@ func (t *TLS) ServerLeaf() *x509.Certificate {
 }
 
 func (t *TLS) reloadServerCert() (bool, error) {
-	cert, err := itls.LoadServerCertAndKey(t.ServerCertPath, t.ServerPKPath)
+	cert, err := itls.LoadServerCertAndKey(t.CertFile, t.KeyFile)
 	if err != nil {
 		return false, err
 	}
@@ -39,7 +39,7 @@ func (t *TLS) reloadServerCert() (bool, error) {
 }
 
 func (t *TLS) reloadClientCAs() (bool, error) {
-	pool, certs, err := itls.LoadCAPool(t.ClientCAPath)
+	pool, certs, err := itls.LoadCAPool(t.ClientCAFile)
 	if err != nil {
 		return false, err
 	}
@@ -51,7 +51,7 @@ func (t *TLS) reloadClientCAs() (bool, error) {
 }
 
 func (c Config) ReloadTLS(ctx context.Context, log *slog.Logger, m *metrics.Set) {
-	ticker := time.NewTicker(time.Duration(c.TLSReloadIntervalSeconds) * time.Second)
+	ticker := time.NewTicker(time.Duration(c.CertReloadInterval))
 	defer ticker.Stop()
 	for {
 		select {
@@ -59,7 +59,7 @@ func (c Config) ReloadTLS(ctx context.Context, log *slog.Logger, m *metrics.Set)
 			return
 		case <-ticker.C:
 			for _, ch := range c.Channels {
-				t := ch.TCPListener.TLS
+				t := ch.Source.TLS
 				if t.Mode != TLSModeMTLS {
 					continue
 				}

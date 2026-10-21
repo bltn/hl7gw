@@ -11,16 +11,18 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/bltn/hl7gw/internal/console"
 	itls "github.com/bltn/hl7gw/internal/tls"
 )
 
 const (
-	DefaultMaxTCPConnections        = 64
-	DefaultDataDir                  = "data"
-	DefaultTLSReloadIntervalSeconds = 120
+	DefaultMaxTCPConnections  = 64
+	DefaultDataDir            = "data"
+	DefaultCertReloadInterval = Duration(2 * time.Minute)
 
 	TLSModeOff  = "off"
 	TLSModeMTLS = "mtls"
@@ -38,6 +40,32 @@ var logLevels = map[string]slog.Level{
 	"error": slog.LevelError,
 }
 
+type Duration time.Duration
+
+func (d Duration) String() string {
+	s := time.Duration(d).String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
+
+func (d Duration) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
+}
+
+func (d *Duration) UnmarshalText(text []byte) error {
+	v, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
 type Log struct {
 	Level  string `json:"level"`
 	Format string `json:"format"`
@@ -51,20 +79,20 @@ func (l Log) Logger(w io.Writer, term console.Terminal) *slog.Logger {
 	return slog.New(term.Handler(w, level))
 }
 
-type AdminAPI struct {
-	Port     int    `json:"port"`
-	TokenEnv string `json:"token_env"`
-	token    string
+type Admin struct {
+	Port      int    `json:"port"`
+	TokenFile string `json:"token_file"`
+	token     string
 }
 
-func (a *AdminAPI) Token() string {
+func (a *Admin) Token() string {
 	return a.token
 }
 
 type Auth struct {
-	Type     string `json:"type"`
-	TokenEnv string `json:"token_env"`
-	token    string
+	Type      string `json:"type"`
+	TokenFile string `json:"token_file"`
+	token     string
 }
 
 func (a *Auth) Token() string {
@@ -78,28 +106,28 @@ type Destination struct {
 
 type Channel struct {
 	Name        string      `json:"name"`
-	TCPListener TCPListener `json:"tcp_listener"`
+	Source      Source      `json:"source"`
 	Destination Destination `json:"destination"`
 }
 
-type TCPListener struct {
-	MaxConnections     int  `json:"max_connections"`
-	Port               int  `json:"port"`
-	IdleTimeoutSeconds int  `json:"idle_timeout_seconds"`
-	TLS                *TLS `json:"tls"`
+type Source struct {
+	MaxConnections int      `json:"max_connections"`
+	Port           int      `json:"port"`
+	IdleTimeout    Duration `json:"idle_timeout"`
+	TLS            *TLS     `json:"tls"`
 }
 
 type TLS struct {
-	Mode           string      `json:"mode"`
-	ClientCAPath   string      `json:"client_ca_path"`
-	ServerCertPath string      `json:"server_cert_path"`
-	ServerPKPath   string      `json:"server_pk_path"`
-	MinVersion     json.Number `json:"min_version"`
-	serving        atomic.Pointer[tls.Config]
-	serverCert     tls.Certificate
-	clientCAs      *x509.CertPool
-	clientCACerts  []*x509.Certificate
-	minVersion     uint16
+	Mode          string `json:"mode"`
+	CertFile      string `json:"cert_file,omitempty"`
+	KeyFile       string `json:"key_file,omitempty"`
+	ClientCAFile  string `json:"client_ca_file,omitempty"`
+	MinVersion    string `json:"min_version,omitempty"`
+	serving       atomic.Pointer[tls.Config]
+	serverCert    tls.Certificate
+	clientCAs     *x509.CertPool
+	clientCACerts []*x509.Certificate
+	minVersion    uint16
 }
 
 func (t *TLS) ServerConfig() *tls.Config {
@@ -116,15 +144,15 @@ func (t *TLS) load() error {
 	if t.Mode != TLSModeMTLS {
 		return nil
 	}
-	cert, err := itls.LoadServerCertAndKey(t.ServerCertPath, t.ServerPKPath)
+	cert, err := itls.LoadServerCertAndKey(t.CertFile, t.KeyFile)
 	if err != nil {
 		return err
 	}
-	pool, certs, err := itls.LoadCAPool(t.ClientCAPath)
+	pool, certs, err := itls.LoadCAPool(t.ClientCAFile)
 	if err != nil {
 		return err
 	}
-	minVersion, err := itls.LoadMinimumVersion(t.MinVersion.String())
+	minVersion, err := itls.LoadMinimumVersion(t.MinVersion)
 	if err != nil {
 		return err
 	}
@@ -147,51 +175,53 @@ func (d *DestURL) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (d DestURL) MarshalText() ([]byte, error) {
+	if d.URL == nil {
+		return []byte{}, nil
+	}
+	return []byte(d.String()), nil
+}
+
 type Config struct {
-	DataDir                  string    `json:"data_dir"`
-	TLSReloadIntervalSeconds int       `json:"tls_reload_interval_seconds"`
-	Log                      Log       `json:"log"`
-	AdminAPI                 AdminAPI  `json:"admin_api"`
-	Channels                 []Channel `json:"channels"`
+	Admin              Admin     `json:"admin"`
+	DataDir            string    `json:"data_dir"`
+	CertReloadInterval Duration  `json:"cert_reload_interval"`
+	Log                Log       `json:"log"`
+	Channels           []Channel `json:"channels"`
 }
 
 var channelNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func ValidateChannelName(name string) error {
+	if !channelNamePattern.MatchString(name) {
+		return fmt.Errorf("channel name %q must be non-empty and contain only letters, digits, _ or -", name)
+	}
+	return nil
+}
 
 func Load(path string) (Config, error) {
 	cfg, err := loadAndDecode(path)
 	if err != nil {
 		return Config{}, err
 	}
-
-	if cfg.DataDir == "" {
-		cfg.DataDir = DefaultDataDir
-	}
-	if cfg.TLSReloadIntervalSeconds == 0 {
-		cfg.TLSReloadIntervalSeconds = DefaultTLSReloadIntervalSeconds
-	}
-	if cfg.Log.Level == "" {
-		cfg.Log.Level = DefaultLogLevel
-	}
-	if cfg.Log.Format == "" {
-		cfg.Log.Format = LogFormatAuto
-	}
+	applyDefaults(&cfg)
 
 	err = validate(cfg)
 	if err != nil {
 		return Config{}, err
 	}
 
-	adminToken, err := resolveToken(cfg.AdminAPI.TokenEnv)
+	adminToken, err := readToken(cfg.Admin.TokenFile)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("admin: %w", err)
 	}
-	cfg.AdminAPI.token = adminToken
+	cfg.Admin.token = adminToken
 
 	for _, ch := range cfg.Channels {
-		if err := ch.TCPListener.TLS.load(); err != nil {
+		if err := ch.Source.TLS.load(); err != nil {
 			return Config{}, fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
-		token, err := resolveToken(ch.Destination.Auth.TokenEnv)
+		token, err := readToken(ch.Destination.Auth.TokenFile)
 		if err != nil {
 			return Config{}, fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
@@ -201,15 +231,35 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+func applyDefaults(cfg *Config) {
+	if cfg.DataDir == "" {
+		cfg.DataDir = DefaultDataDir
+	}
+	if cfg.CertReloadInterval == 0 {
+		cfg.CertReloadInterval = DefaultCertReloadInterval
+	}
+	if cfg.Log.Level == "" {
+		cfg.Log.Level = DefaultLogLevel
+	}
+	if cfg.Log.Format == "" {
+		cfg.Log.Format = LogFormatAuto
+	}
+	for i := range cfg.Channels {
+		if cfg.Channels[i].Source.MaxConnections == 0 {
+			cfg.Channels[i].Source.MaxConnections = DefaultMaxTCPConnections
+		}
+	}
+}
+
 func validate(cfg Config) error {
-	if cfg.AdminAPI.Port <= 0 {
-		return fmt.Errorf("admin_api.port is required and must be positive, got %d", cfg.AdminAPI.Port)
+	if cfg.Admin.Port <= 0 {
+		return fmt.Errorf("admin.port is required and must be positive, got %d", cfg.Admin.Port)
 	}
-	if cfg.AdminAPI.TokenEnv == "" {
-		return errors.New("admin_api.token_env is required and must be non-empty")
+	if cfg.Admin.TokenFile == "" {
+		return errors.New("admin.token_file is required and must be non-empty")
 	}
-	if cfg.TLSReloadIntervalSeconds < 0 {
-		return fmt.Errorf("tls_reload_interval_seconds must be positive, got %d", cfg.TLSReloadIntervalSeconds)
+	if cfg.CertReloadInterval < 0 {
+		return fmt.Errorf("cert_reload_interval must be positive, got %s", cfg.CertReloadInterval)
 	}
 	if _, ok := logLevels[cfg.Log.Level]; !ok {
 		return fmt.Errorf("log.level must be one of \"debug\", \"info\", \"warn\", \"error\", got %q", cfg.Log.Level)
@@ -220,31 +270,28 @@ func validate(cfg Config) error {
 
 	names := make(map[string]bool)
 	ports := make(map[int]bool)
-	for i, ch := range cfg.Channels {
-		if !channelNamePattern.MatchString(ch.Name) {
-			return fmt.Errorf("channel name %q must be non-empty and contain only letters, digits, _ or -", ch.Name)
+	for _, ch := range cfg.Channels {
+		if err := ValidateChannelName(ch.Name); err != nil {
+			return err
 		}
 		if names[ch.Name] {
 			return fmt.Errorf("duplicate channel name %s", ch.Name)
 		}
 		names[ch.Name] = true
-		if ch.TCPListener.Port == cfg.AdminAPI.Port {
-			return fmt.Errorf("channel %s: tcp_listener.port %d collides with admin_api.port", ch.Name, ch.TCPListener.Port)
+		if ch.Source.Port == cfg.Admin.Port {
+			return fmt.Errorf("channel %s: source.port %d collides with admin.port", ch.Name, ch.Source.Port)
 		}
-		if ports[ch.TCPListener.Port] {
-			return fmt.Errorf("channel %s: duplicate tcp_listener.port %d", ch.Name, ch.TCPListener.Port)
+		if ports[ch.Source.Port] {
+			return fmt.Errorf("channel %s: duplicate source.port %d", ch.Name, ch.Source.Port)
 		}
-		ports[ch.TCPListener.Port] = true
-		if ch.TCPListener.MaxConnections < 0 {
-			return fmt.Errorf("channel %s: tcp_listener.max_connections must be positive, got %d", ch.Name, ch.TCPListener.MaxConnections)
+		ports[ch.Source.Port] = true
+		if ch.Source.MaxConnections < 0 {
+			return fmt.Errorf("channel %s: source.max_connections must be positive, got %d", ch.Name, ch.Source.MaxConnections)
 		}
-		if ch.TCPListener.MaxConnections == 0 {
-			cfg.Channels[i].TCPListener.MaxConnections = DefaultMaxTCPConnections
+		if ch.Source.IdleTimeout <= 0 {
+			return fmt.Errorf("channel %s: source.idle_timeout is required and must be positive, got %s", ch.Name, ch.Source.IdleTimeout)
 		}
-		if ch.TCPListener.IdleTimeoutSeconds <= 0 {
-			return fmt.Errorf("channel %s: tcp_listener.idle_timeout_seconds is required and must be positive, got %d", ch.Name, ch.TCPListener.IdleTimeoutSeconds)
-		}
-		if err := validateTLS(ch.TCPListener.TLS); err != nil {
+		if err := validateTLS(ch.Source.TLS); err != nil {
 			return fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
 		if ch.Destination.URL.URL == nil {
@@ -256,8 +303,8 @@ func validate(cfg Config) error {
 		if ch.Destination.Auth.Type != "bearer" {
 			return fmt.Errorf("channel %s: destination.auth.type must be \"bearer\", got %q", ch.Name, ch.Destination.Auth.Type)
 		}
-		if ch.Destination.Auth.TokenEnv == "" {
-			return fmt.Errorf("channel %s: destination.auth.token_env is required and must be non-empty", ch.Name)
+		if ch.Destination.Auth.TokenFile == "" {
+			return fmt.Errorf("channel %s: destination.auth.token_file is required and must be non-empty", ch.Name)
 		}
 	}
 	return nil
@@ -265,25 +312,25 @@ func validate(cfg Config) error {
 
 func validateTLS(t *TLS) error {
 	if t == nil {
-		return errors.New("tcp_listener.tls is required")
+		return errors.New("source.tls is required")
 	}
 	if t.Mode != TLSModeOff && t.Mode != TLSModeMTLS {
-		return fmt.Errorf("tcp_listener.tls.mode must be %q or %q, got %q", TLSModeOff, TLSModeMTLS, t.Mode)
+		return fmt.Errorf("source.tls.mode must be %q or %q, got %q", TLSModeOff, TLSModeMTLS, t.Mode)
 	}
 	if t.Mode == TLSModeOff {
 		return nil
 	}
-	if t.ClientCAPath == "" {
-		return errors.New("tcp_listener.tls.client_ca_path is required and must be non-empty")
+	if t.CertFile == "" {
+		return errors.New("source.tls.cert_file is required and must be non-empty")
 	}
-	if t.ServerCertPath == "" {
-		return errors.New("tcp_listener.tls.server_cert_path is required and must be non-empty")
+	if t.KeyFile == "" {
+		return errors.New("source.tls.key_file is required and must be non-empty")
 	}
-	if t.ServerPKPath == "" {
-		return errors.New("tcp_listener.tls.server_pk_path is required and must be non-empty")
+	if t.ClientCAFile == "" {
+		return errors.New("source.tls.client_ca_file is required and must be non-empty")
 	}
 	if t.MinVersion == "" {
-		return errors.New("tcp_listener.tls.min_version is required")
+		return errors.New("source.tls.min_version is required")
 	}
 	return nil
 }
@@ -305,10 +352,14 @@ func loadAndDecode(path string) (Config, error) {
 	return config, nil
 }
 
-func resolveToken(env string) (string, error) {
-	token := os.Getenv(env)
+func readToken(path string) (string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304 -- path is an operator-supplied config value, no traversal boundary
+	if err != nil {
+		return "", fmt.Errorf("reading token file: %w", err)
+	}
+	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("%s must be set to a non-empty bearer token", env)
+		return "", fmt.Errorf("token file %s is empty", path)
 	}
 	return token, nil
 }

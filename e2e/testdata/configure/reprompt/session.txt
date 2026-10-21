@@ -1,0 +1,15 @@
+adt
+
+
+
+
+/hl7
+https://api.example.com/hl7
+
+n
+eighty
+2575
+
+
+
+

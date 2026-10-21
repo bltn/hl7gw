@@ -1,15 +1,14 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/bltn/hl7gw/internal/config"
 )
 
 type authJSON struct {
-	Type     string `json:"type"`
-	TokenEnv string `json:"token_env"`
+	Type      string `json:"type"`
+	TokenFile string `json:"token_file"`
 }
 
 type destinationJSON struct {
@@ -18,49 +17,49 @@ type destinationJSON struct {
 }
 
 type tlsJSON struct {
-	Mode           string      `json:"mode"`
-	ClientCAPath   string      `json:"client_ca_path,omitempty"`
-	ServerCertPath string      `json:"server_cert_path,omitempty"`
-	ServerPKPath   string      `json:"server_pk_path,omitempty"`
-	MinVersion     json.Number `json:"min_version,omitempty"`
+	Mode         string `json:"mode"`
+	CertFile     string `json:"cert_file,omitempty"`
+	KeyFile      string `json:"key_file,omitempty"`
+	ClientCAFile string `json:"client_ca_file,omitempty"`
+	MinVersion   string `json:"min_version,omitempty"`
 }
 
-type tcpListenerJSON struct {
-	MaxConnections     int     `json:"max_connections"`
-	Port               int     `json:"port"`
-	IdleTimeoutSeconds int     `json:"idle_timeout_seconds"`
-	TLS                tlsJSON `json:"tls"`
+type sourceJSON struct {
+	MaxConnections int             `json:"max_connections"`
+	Port           int             `json:"port"`
+	IdleTimeout    config.Duration `json:"idle_timeout"`
+	TLS            tlsJSON         `json:"tls"`
 }
 
 type channelJSON struct {
 	Name        string          `json:"name"`
-	TCPListener tcpListenerJSON `json:"tcp_listener"`
+	Source      sourceJSON      `json:"source"`
 	Destination destinationJSON `json:"destination"`
 }
 
 func (a *api) listChannels(w http.ResponseWriter, _ *http.Request) {
 	chs := make([]channelJSON, 0, len(a.channels))
 	for _, ch := range a.channels {
-		t := tlsJSON{Mode: ch.TCPListener.TLS.Mode}
+		t := tlsJSON{Mode: ch.Source.TLS.Mode}
 		if t.Mode == config.TLSModeMTLS {
-			t.ClientCAPath = ch.TCPListener.TLS.ClientCAPath
-			t.ServerCertPath = ch.TCPListener.TLS.ServerCertPath
-			t.ServerPKPath = ch.TCPListener.TLS.ServerPKPath
-			t.MinVersion = ch.TCPListener.TLS.MinVersion
+			t.CertFile = ch.Source.TLS.CertFile
+			t.KeyFile = ch.Source.TLS.KeyFile
+			t.ClientCAFile = ch.Source.TLS.ClientCAFile
+			t.MinVersion = ch.Source.TLS.MinVersion
 		}
 		chs = append(chs, channelJSON{
 			Name: ch.Name,
-			TCPListener: tcpListenerJSON{
-				MaxConnections:     ch.TCPListener.MaxConnections,
-				Port:               ch.TCPListener.Port,
-				IdleTimeoutSeconds: ch.TCPListener.IdleTimeoutSeconds,
-				TLS:                t,
+			Source: sourceJSON{
+				MaxConnections: ch.Source.MaxConnections,
+				Port:           ch.Source.Port,
+				IdleTimeout:    ch.Source.IdleTimeout,
+				TLS:            t,
 			},
 			Destination: destinationJSON{
 				URL: ch.Destination.URL.String(),
 				Auth: authJSON{
-					Type:     ch.Destination.Auth.Type,
-					TokenEnv: ch.Destination.Auth.TokenEnv,
+					Type:      ch.Destination.Auth.Type,
+					TokenFile: ch.Destination.Auth.TokenFile,
 				},
 			},
 		})

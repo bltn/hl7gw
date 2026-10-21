@@ -25,12 +25,12 @@ const shutdownWait = 5 * time.Second
 
 func Serve(g *errgroup.Group, ctx context.Context, cfg config.Config, stores map[string]*store.Store, processors map[string]*processor.Processor, openapiSpec []byte, log *slog.Logger, m *metrics.Set) error {
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", cfg.AdminAPI.Port))
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", cfg.Admin.Port))
 	if err != nil {
 		return fmt.Errorf("binding admin api listener: %w", err)
 	}
 
-	h := newHandler(cfg.Channels, stores, processors, cfg.AdminAPI.Token(), openapiSpec, log, m)
+	h := newHandler(cfg.Channels, stores, processors, cfg.Admin.Token(), openapiSpec, log, m)
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second}
 	g.Go(func() error {
 		return ignoreServerClosed(srv.Serve(ln))
