@@ -100,3 +100,10 @@ make e2e_tests    # black-box tests against the built binary
 make fuzz FUZZTIME=30s
 make dist         # release archives + checksums into dist/
 ```
+
+### Releasing
+
+Bump the tag in `.release-version` (e.g. `v0.1.0`) and merge to `main`. Once
+`CI` passes on that push, the `Release` workflow tags the commit and publishes
+the archives; if that version is already released it does nothing. The workflow
+can also be run by hand from the Actions tab against `main`.
