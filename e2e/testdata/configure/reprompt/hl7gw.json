@@ -1,21 +1,21 @@
 {
   "admin": {
-    "port": 8081,
+    "port": 9000,
     "token_file": "admin.token"
   },
   "data_dir": "data",
-  "cert_reload_interval": "2m",
+  "cert_reload_interval": "30s",
   "log": {
-    "level": "info",
-    "format": "auto"
+    "level": "debug",
+    "format": "json"
   },
   "channels": [
     {
       "name": "adt",
       "source": {
-        "max_connections": 64,
+        "max_connections": 10,
         "port": 2575,
-        "idle_timeout": "1m",
+        "idle_timeout": "5m",
         "tls": {
           "mode": "off"
         }
@@ -25,6 +25,29 @@
         "auth": {
           "type": "bearer",
           "token_file": "adt.token"
+        }
+      }
+    },
+    {
+      "name": "lab",
+      "source": {
+        "max_connections": 64,
+        "port": 2576,
+        "idle_timeout": "1m",
+        "tls": {
+          "mode": "mtls",
+          "cert_file": "/etc/hl7gw/server-cert.pem",
+          "key_file": "/etc/hl7gw/server-key.pem",
+          "client_ca_file": "/etc/hl7gw/client-ca.pem",
+          "min_version": "1.3"
+        }
+      },
+      "destination": {
+        "url": "http://10.0.0.5/hl7",
+        "auth": {
+          "type": "basic",
+          "username": "svc-lab",
+          "password_file": "lab.password"
         }
       }
     }

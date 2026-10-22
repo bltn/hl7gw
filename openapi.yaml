@@ -791,19 +791,29 @@ components:
           type: string
           format: uri
         auth:
-          type: object
-          description: >-
-            How the gateway authenticates to the destination. token_file is
-            the path the token is read from; the token value itself never
-            appears in this API.
-          required: [type, token_file]
-          properties:
-            type:
-              type: string
-              enum: [bearer]
-            token_file:
-              type: string
-              pattern: '^.+$'
+          $ref: '#/components/schemas/DestinationAuth'
+    DestinationAuth:
+      type: object
+      description: >-
+        How the gateway authenticates to the destination. A bearer channel
+        carries token_file, a basic channel carries username and
+        password_file, and a none channel carries only its type. The paths
+        are where secrets are read from; the secret values themselves never
+        appear in this API.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [none, bearer, basic]
+        token_file:
+          type: string
+          pattern: '^.+$'
+        username:
+          type: string
+          pattern: '^.+$'
+        password_file:
+          type: string
+          pattern: '^.+$'
     ChannelList:
       type: object
       description: All channels configured on the gateway.

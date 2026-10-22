@@ -105,9 +105,9 @@ needs.
 
 ### Secrets live in files
 
-The config file names token files and never holds tokens, so it can be
-committed and reviewed like any other file. A missing or empty token file
-stops startup, so a misconfiguration can't fail later at runtime.
+The config file names token and password files and never holds secrets, so it
+can be committed and reviewed like any other file. A missing or empty secret
+file stops startup, so a misconfiguration can't fail later at runtime.
 
 ### What the roadmap changes
 
@@ -124,7 +124,7 @@ internal/gateway        composition root: wires config, stores, listeners and th
                         maps a processing outcome to an ACK code
 internal/configure      the interactive wizard behind `hl7gw configure`; writes a config
                         that config.Load accepts
-internal/config         loads and validates the JSON config, reads token files, loads TLS
+internal/config         loads and validates the JSON config, reads secret files, loads TLS
                         material and hot-reloads it
 internal/console        terminal detection, colour and the text log handler
 internal/source         MLLP listeners: accept loop, connection cap, TLS handshake,

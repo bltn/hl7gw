@@ -6,14 +6,9 @@ import (
 	"github.com/bltn/hl7gw/internal/config"
 )
 
-type authJSON struct {
-	Type      string `json:"type"`
-	TokenFile string `json:"token_file"`
-}
-
 type destinationJSON struct {
-	URL  string   `json:"url"`
-	Auth authJSON `json:"auth"`
+	URL  string       `json:"url"`
+	Auth *config.Auth `json:"auth"`
 }
 
 type tlsJSON struct {
@@ -56,11 +51,8 @@ func (a *api) listChannels(w http.ResponseWriter, _ *http.Request) {
 				TLS:            t,
 			},
 			Destination: destinationJSON{
-				URL: ch.Destination.URL.String(),
-				Auth: authJSON{
-					Type:      ch.Destination.Auth.Type,
-					TokenFile: ch.Destination.Auth.TokenFile,
-				},
+				URL:  ch.Destination.URL.String(),
+				Auth: ch.Destination.Auth,
 			},
 		})
 	}

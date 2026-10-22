@@ -93,6 +93,9 @@ var escapedControlIDAckAA string
 
 const (
 	channelName               = "e2e"
+	basicChannel              = "basic"
+	openChannel               = "open"
+	basicUsername             = "svc"
 	clientSendBufferBytes     = 64 << 10
 	spamFieldBytes            = 1 << 20
 	spamFrameLimit            = 64
@@ -133,6 +136,40 @@ func TestAcksAAWhenSinkAccepts(t *testing.T) {
 
 	if got, want := harness.NormalizeACK(ack), harness.NormalizeACK(adtA01AckAA); got != want {
 		t.Errorf("ACK mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestDestinationAuthHeader(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		channel harness.Channel
+		want    string
+	}{
+		{"bearer", harness.Channel{Name: channelName, Auth: &harness.ChannelAuth{Type: harness.AuthBearer}}, "Bearer harness-channel-token"},
+		{"basic", harness.Channel{Name: basicChannel, Auth: &harness.ChannelAuth{Type: harness.AuthBasic, Username: basicUsername}}, "Basic c3ZjOmhhcm5lc3MtY2hhbm5lbC1wYXNzd29yZA=="},
+		{"none", harness.Channel{Name: openChannel, Auth: &harness.ChannelAuth{Type: harness.AuthNone}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sink := harness.NewSink(t, http.StatusOK, "")
+			tc.channel.DestURL = sink.URL()
+			gw, err := harness.StartGateway(t, tc.channel)
+			if err != nil {
+				t.Fatalf("start gateway: %v", err)
+			}
+			ack, err := gw.SendAndAck(tc.channel.Name, adtA01Message)
+			if err != nil {
+				t.Fatalf("send and ack: %v", err)
+			}
+			if got, want := harness.NormalizeACK(ack), harness.NormalizeACK(adtA01AckAA); got != want {
+				t.Errorf("ACK mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+			}
+			if auths := sink.AuthHeaders(); len(auths) != 1 || auths[0] != tc.want {
+				t.Errorf("authorization headers = %q, want exactly one %q", auths, tc.want)
+			}
+		})
 	}
 }
 

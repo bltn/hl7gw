@@ -1,0 +1,31 @@
+{
+  "admin": {
+    "port": 8081,
+    "token_file": "admin.token"
+  },
+  "data_dir": "data",
+  "cert_reload_interval": "2m",
+  "log": {
+    "level": "info",
+    "format": "auto"
+  },
+  "channels": [
+    {
+      "name": "adt",
+      "source": {
+        "max_connections": 64,
+        "port": 2575,
+        "idle_timeout": "1m",
+        "tls": {
+          "mode": "off"
+        }
+      },
+      "destination": {
+        "url": "https://api.example.com/hl7",
+        "auth": {
+          "type": "none"
+        }
+      }
+    }
+  ]
+}

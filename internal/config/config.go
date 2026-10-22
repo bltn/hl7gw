@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -23,9 +26,14 @@ const (
 	DefaultMaxTCPConnections  = 64
 	DefaultDataDir            = "data"
 	DefaultCertReloadInterval = Duration(2 * time.Minute)
+	maxPort                   = 65535
 
 	TLSModeOff  = "off"
 	TLSModeMTLS = "mtls"
+
+	AuthNone   = "none"
+	AuthBearer = "bearer"
+	AuthBasic  = "basic"
 
 	DefaultLogLevel = "info"
 	LogFormatAuto   = "auto"
@@ -33,12 +41,11 @@ const (
 	LogFormatText   = "text"
 )
 
-var logLevels = map[string]slog.Level{
-	"debug": slog.LevelDebug,
-	"info":  slog.LevelInfo,
-	"warn":  slog.LevelWarn,
-	"error": slog.LevelError,
-}
+var (
+	LogLevels  = []string{"debug", "info", "warn", "error"}
+	LogFormats = []string{LogFormatAuto, LogFormatJSON, LogFormatText}
+	AuthTypes  = []string{AuthNone, AuthBearer, AuthBasic}
+)
 
 type Duration time.Duration
 
@@ -72,7 +79,8 @@ type Log struct {
 }
 
 func (l Log) Logger(w io.Writer, term console.Terminal) *slog.Logger {
-	level := logLevels[l.Level]
+	var level slog.Level
+	_ = level.UnmarshalText([]byte(l.Level))
 	if l.Format == LogFormatJSON || (l.Format == LogFormatAuto && !term.TTY) {
 		return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
 	}
@@ -90,13 +98,43 @@ func (a *Admin) Token() string {
 }
 
 type Auth struct {
-	Type      string `json:"type"`
-	TokenFile string `json:"token_file"`
-	token     string
+	Type          string `json:"type"`
+	TokenFile     string `json:"token_file,omitempty"`
+	Username      string `json:"username,omitempty"`
+	PasswordFile  string `json:"password_file,omitempty"`
+	authorization string
 }
 
-func (a *Auth) Token() string {
-	return a.token
+func (a *Auth) Authorization() string {
+	return a.authorization
+}
+
+func (a *Auth) SecretFile() string {
+	switch a.Type {
+	case AuthBearer:
+		return a.TokenFile
+	case AuthBasic:
+		return a.PasswordFile
+	}
+	return ""
+}
+
+func (a *Auth) load() error {
+	switch a.Type {
+	case AuthBearer:
+		token, err := readSecret("token", a.TokenFile)
+		if err != nil {
+			return err
+		}
+		a.authorization = "Bearer " + token
+	case AuthBasic:
+		password, err := readSecret("password", a.PasswordFile)
+		if err != nil {
+			return err
+		}
+		a.authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(a.Username+":"+password))
+	}
+	return nil
 }
 
 type Destination struct {
@@ -176,9 +214,6 @@ func (d *DestURL) UnmarshalText(text []byte) error {
 }
 
 func (d DestURL) MarshalText() ([]byte, error) {
-	if d.URL == nil {
-		return []byte{}, nil
-	}
 	return []byte(d.String()), nil
 }
 
@@ -199,6 +234,34 @@ func ValidateChannelName(name string) error {
 	return nil
 }
 
+func ValidatePort(n int) error {
+	if n < 1 || n > maxPort {
+		return fmt.Errorf("must be a port between 1 and %d, got %d", maxPort, n)
+	}
+	return nil
+}
+
+func ValidateUsername(s string) error {
+	if s == "" {
+		return errors.New("must not be empty")
+	}
+	if strings.Contains(s, ":") {
+		return fmt.Errorf("must not contain \":\", got %q", s)
+	}
+	return nil
+}
+
+func oneOf(key string, options []string, got string) error {
+	if slices.Contains(options, got) {
+		return nil
+	}
+	quoted := make([]string, len(options))
+	for i, o := range options {
+		quoted[i] = strconv.Quote(o)
+	}
+	return fmt.Errorf("%s must be %s or %s, got %q", key, strings.Join(quoted[:len(quoted)-1], ", "), quoted[len(quoted)-1], got)
+}
+
 func Load(path string) (Config, error) {
 	cfg, err := loadAndDecode(path)
 	if err != nil {
@@ -211,7 +274,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 
-	adminToken, err := readToken(cfg.Admin.TokenFile)
+	adminToken, err := readSecret("token", cfg.Admin.TokenFile)
 	if err != nil {
 		return Config{}, fmt.Errorf("admin: %w", err)
 	}
@@ -221,11 +284,9 @@ func Load(path string) (Config, error) {
 		if err := ch.Source.TLS.load(); err != nil {
 			return Config{}, fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
-		token, err := readToken(ch.Destination.Auth.TokenFile)
-		if err != nil {
+		if err := ch.Destination.Auth.load(); err != nil {
 			return Config{}, fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
-		ch.Destination.Auth.token = token
 	}
 
 	return cfg, nil
@@ -252,8 +313,8 @@ func applyDefaults(cfg *Config) {
 }
 
 func validate(cfg Config) error {
-	if cfg.Admin.Port <= 0 {
-		return fmt.Errorf("admin.port is required and must be positive, got %d", cfg.Admin.Port)
+	if err := ValidatePort(cfg.Admin.Port); err != nil {
+		return fmt.Errorf("admin.port %w", err)
 	}
 	if cfg.Admin.TokenFile == "" {
 		return errors.New("admin.token_file is required and must be non-empty")
@@ -261,11 +322,11 @@ func validate(cfg Config) error {
 	if cfg.CertReloadInterval < 0 {
 		return fmt.Errorf("cert_reload_interval must be positive, got %s", cfg.CertReloadInterval)
 	}
-	if _, ok := logLevels[cfg.Log.Level]; !ok {
-		return fmt.Errorf("log.level must be one of \"debug\", \"info\", \"warn\", \"error\", got %q", cfg.Log.Level)
+	if err := oneOf("log.level", LogLevels, cfg.Log.Level); err != nil {
+		return err
 	}
-	if cfg.Log.Format != LogFormatAuto && cfg.Log.Format != LogFormatJSON && cfg.Log.Format != LogFormatText {
-		return fmt.Errorf("log.format must be %q, %q or %q, got %q", LogFormatAuto, LogFormatJSON, LogFormatText, cfg.Log.Format)
+	if err := oneOf("log.format", LogFormats, cfg.Log.Format); err != nil {
+		return err
 	}
 
 	names := make(map[string]bool)
@@ -278,6 +339,9 @@ func validate(cfg Config) error {
 			return fmt.Errorf("duplicate channel name %s", ch.Name)
 		}
 		names[ch.Name] = true
+		if err := ValidatePort(ch.Source.Port); err != nil {
+			return fmt.Errorf("channel %s: source.port %w", ch.Name, err)
+		}
 		if ch.Source.Port == cfg.Admin.Port {
 			return fmt.Errorf("channel %s: source.port %d collides with admin.port", ch.Name, ch.Source.Port)
 		}
@@ -297,14 +361,36 @@ func validate(cfg Config) error {
 		if ch.Destination.URL.URL == nil {
 			return fmt.Errorf("channel %s: destination.url is required", ch.Name)
 		}
-		if ch.Destination.Auth == nil {
-			return fmt.Errorf("channel %s: destination.auth is required", ch.Name)
+		if err := validateAuth(ch.Destination.Auth); err != nil {
+			return fmt.Errorf("channel %s: %w", ch.Name, err)
 		}
-		if ch.Destination.Auth.Type != "bearer" {
-			return fmt.Errorf("channel %s: destination.auth.type must be \"bearer\", got %q", ch.Name, ch.Destination.Auth.Type)
+	}
+	return nil
+}
+
+func validateAuth(a *Auth) error {
+	if a == nil {
+		return errors.New("destination.auth is required")
+	}
+	if err := oneOf("destination.auth.type", AuthTypes, a.Type); err != nil {
+		return err
+	}
+	fields := []struct{ key, value, owner string }{
+		{"token_file", a.TokenFile, AuthBearer},
+		{"username", a.Username, AuthBasic},
+		{"password_file", a.PasswordFile, AuthBasic},
+	}
+	for _, f := range fields {
+		if a.Type == f.owner && f.value == "" {
+			return fmt.Errorf("destination.auth.%s is required and must be non-empty", f.key)
 		}
-		if ch.Destination.Auth.TokenFile == "" {
-			return fmt.Errorf("channel %s: destination.auth.token_file is required and must be non-empty", ch.Name)
+		if a.Type != f.owner && f.value != "" {
+			return fmt.Errorf("destination.auth.%s is only valid when type is %q", f.key, f.owner)
+		}
+	}
+	if a.Type == AuthBasic {
+		if err := ValidateUsername(a.Username); err != nil {
+			return fmt.Errorf("destination.auth.username %w", err)
 		}
 	}
 	return nil
@@ -314,8 +400,8 @@ func validateTLS(t *TLS) error {
 	if t == nil {
 		return errors.New("source.tls is required")
 	}
-	if t.Mode != TLSModeOff && t.Mode != TLSModeMTLS {
-		return fmt.Errorf("source.tls.mode must be %q or %q, got %q", TLSModeOff, TLSModeMTLS, t.Mode)
+	if err := oneOf("source.tls.mode", []string{TLSModeOff, TLSModeMTLS}, t.Mode); err != nil {
+		return err
 	}
 	if t.Mode == TLSModeOff {
 		return nil
@@ -352,14 +438,14 @@ func loadAndDecode(path string) (Config, error) {
 	return config, nil
 }
 
-func readToken(path string) (string, error) {
+func readSecret(kind, path string) (string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304 -- path is an operator-supplied config value, no traversal boundary
 	if err != nil {
-		return "", fmt.Errorf("reading token file: %w", err)
+		return "", fmt.Errorf("reading %s file: %w", kind, err)
 	}
-	token := strings.TrimSpace(string(data))
-	if token == "" {
-		return "", fmt.Errorf("token file %s is empty", path)
+	secret := strings.TrimSpace(string(data))
+	if secret == "" {
+		return "", fmt.Errorf("%s file %s is empty", kind, path)
 	}
-	return token, nil
+	return secret, nil
 }

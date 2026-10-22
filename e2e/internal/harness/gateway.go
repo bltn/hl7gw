@@ -23,8 +23,13 @@ import (
 const (
 	apiToken         = "harness-admin-token"
 	channelToken     = "harness-channel-token"
+	channelPassword  = "harness-channel-password"
 	adminTokenName   = "admin.token"
 	channelTokenName = "channel.token"
+
+	AuthNone   = "none"
+	AuthBearer = "bearer"
+	AuthBasic  = "basic"
 
 	TLSReloadInterval  = time.Second
 	startupExitTimeout = 10 * time.Second
@@ -65,8 +70,17 @@ func (gw *Gateway) ChannelTokenFile() string {
 	return filepath.Join(gw.workDir, channelTokenName)
 }
 
+func (gw *Gateway) ChannelPasswordFile(channel string) string {
+	return filepath.Join(gw.workDir, channel+".password")
+}
+
 func (gw *Gateway) DBPath(channel string) string {
 	return filepath.Join(gw.dataDir, channel+".db")
+}
+
+type ChannelAuth struct {
+	Type     string
+	Username string
 }
 
 type Channel struct {
@@ -75,6 +89,7 @@ type Channel struct {
 	MaxTCPConns int
 	IdleTimeout time.Duration
 	TLS         *ChannelTLS
+	Auth        *ChannelAuth
 }
 
 type ExitResult struct {
@@ -499,12 +514,28 @@ func writeConfig(dir string, channels []Channel, channelPorts []int, apiPort int
 			idle = 24 * time.Hour
 		}
 		source["idle_timeout"] = idle.String()
+		chAuth := &ChannelAuth{Type: AuthBearer}
+		if ch.Auth != nil {
+			chAuth = ch.Auth
+		}
+		auth := map[string]any{"type": chAuth.Type}
+		switch chAuth.Type {
+		case AuthBearer:
+			auth["token_file"] = channelTokenPath
+		case AuthBasic:
+			passwordPath := filepath.Join(dir, ch.Name+".password")
+			if err := os.WriteFile(passwordPath, []byte(channelPassword+"\n"), 0o600); err != nil {
+				return "", fmt.Errorf("write password file: %w", err)
+			}
+			auth["username"] = chAuth.Username
+			auth["password_file"] = passwordPath
+		}
 		entry := map[string]any{
 			"name":   ch.Name,
 			"source": source,
 			"destination": map[string]any{
 				"url":  ch.DestURL,
-				"auth": map[string]any{"type": "bearer", "token_file": channelTokenPath},
+				"auth": auth,
 			},
 		}
 		entries = append(entries, entry)

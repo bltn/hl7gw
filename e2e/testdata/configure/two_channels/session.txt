@@ -5,6 +5,7 @@ adt
 
 https://api.example.com/hl7
 
+
 y
 lab
 
@@ -16,6 +17,8 @@ y
 /etc/hl7gw/client-ca.pem
 1.3
 http://10.0.0.5/hl7
+basic
+svc-lab
 
 n
 9000
