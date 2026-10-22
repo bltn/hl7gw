@@ -7,13 +7,18 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
+	"strings"
 )
 
 var tlsVersions = map[string]uint16{
 	"1.2": tls.VersionTLS12,
 	"1.3": tls.VersionTLS13,
 }
+
+var Versions = slices.Sorted(maps.Keys(tlsVersions))
 
 func LoadServerCertAndKey(certPath, keyPath string) (tls.Certificate, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
@@ -57,7 +62,7 @@ func LoadCAPool(path string) (*x509.CertPool, []*x509.Certificate, error) {
 func LoadMinimumVersion(version string) (uint16, error) {
 	v, ok := tlsVersions[version]
 	if !ok {
-		return 0, fmt.Errorf("invalid tls min_version %q, valid versions: 1.2, 1.3", version)
+		return 0, fmt.Errorf("invalid tls min_version %q, valid versions: %s", version, strings.Join(Versions, ", "))
 	}
 	return v, nil
 }

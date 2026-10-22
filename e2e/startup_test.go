@@ -73,7 +73,7 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 		{
 			name:       "unknown log level",
 			body:       `{` + adminOK + `, "log": {"level": "loud"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, `log.level must be one of "debug", "info", "warn", "error", got "loud"`},
+			wantStderr: []string{errorPrefix, `log.level must be "debug", "info", "warn" or "error", got "loud"`},
 		},
 		{
 			name:       "unknown log format",
@@ -168,17 +168,32 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 		{
 			name:       "negative admin port",
 			body:       `{"admin": {"port": -1, "token_file": "admin.token"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got -1"},
+			wantStderr: []string{errorPrefix, "admin.port must be a port between 1 and 65535, got -1"},
+		},
+		{
+			name:       "admin port too high",
+			body:       `{"admin": {"port": 70000, "token_file": "admin.token"}, "channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "admin.port must be a port between 1 and 65535, got 70000"},
 		},
 		{
 			name:       "missing admin",
 			body:       `{"channels": [{"name": "solo", ` + sourceOK + `, ` + destinationOK + `}]}`,
-			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got 0"},
+			wantStderr: []string{errorPrefix, "admin.port must be a port between 1 and 65535, got 0"},
 		},
 		{
 			name:       "missing admin port",
 			body:       `{"admin": {"token_file": "admin.token"}, "channels": []}`,
-			wantStderr: []string{errorPrefix, "admin.port is required and must be positive, got 0"},
+			wantStderr: []string{errorPrefix, "admin.port must be a port between 1 and 65535, got 0"},
+		},
+		{
+			name:       "missing source port",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"idle_timeout": "24h", ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: source.port must be a port between 1 and 65535, got 0"},
+		},
+		{
+			name:       "source port too high",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 70000, "idle_timeout": "24h", ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: source.port must be a port between 1 and 65535, got 70000"},
 		},
 		{
 			name:       "missing admin token_file",
@@ -228,12 +243,47 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 		{
 			name:       "missing auth type",
 			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"token_file": "channel.token"}}}]}`,
-			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "bearer", got ""`},
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "none", "bearer" or "basic", got ""`},
 		},
 		{
 			name:       "unknown auth type",
-			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "token_file": "channel.token"}}}]}`,
-			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "bearer", got "basic"`},
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "digest", "token_file": "channel.token"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.type must be "none", "bearer" or "basic", got "digest"`},
+		},
+		{
+			name:       "basic missing username",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "password_file": "channel.password"}}}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: destination.auth.username is required and must be non-empty"},
+		},
+		{
+			name:       "basic username with colon",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "username": "svc:1", "password_file": "channel.password"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.username must not contain ":", got "svc:1"`},
+		},
+		{
+			name:       "none with token_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "none", "token_file": "channel.token"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.token_file is only valid when type is "bearer"`},
+		},
+		{
+			name:       "basic with token_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "username": "svc", "password_file": "channel.password", "token_file": "channel.token"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.token_file is only valid when type is "bearer"`},
+		},
+		{
+			name:       "bearer with username",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_file": "channel.token", "username": "svc"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.username is only valid when type is "basic"`},
+		},
+		{
+			name:       "none with password_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "none", "password_file": "channel.password"}}}]}`,
+			wantStderr: []string{errorPrefix, `channel bad: destination.auth.password_file is only valid when type is "basic"`},
+		},
+		{
+			name:       "basic missing password_file",
+			body:       `{` + adminOK + `, "channels": [{"name": "bad", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "basic", "username": "svc"}}}]}`,
+			wantStderr: []string{errorPrefix, "channel bad: destination.auth.password_file is required and must be non-empty"},
 		},
 		{
 			name:       "missing auth token_file",
@@ -256,18 +306,24 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 
 func TestExitsWhenTokenFileUnusable(t *testing.T) {
 	t.Parallel()
-	channel := func(tokenFile string) string {
-		return `"channels": [{"name": "solo", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": {"type": "bearer", "token_file": ` + tokenFile + `}}}]`
+	channel := func(auth string) string {
+		return `"channels": [{"name": "solo", ` + sourceOK + `, "destination": {"url": "http://127.0.0.1:1/", "auth": ` + auth + `}}]`
+	}
+	bearer := func(tokenFile string) string { return `{"type": "bearer", "token_file": ` + tokenFile + `}` }
+	basic := func(passwordFile string) string {
+		return `{"type": "basic", "username": "svc", "password_file": ` + passwordFile + `}`
 	}
 	tests := []struct {
 		name       string
 		body       string
 		wantStderr string
 	}{
-		{"admin token file missing", `{"admin": {"port": 9990, "token_file": "missing.token"}, ` + channel(`"channel.token"`) + `}`, "admin: reading token file: open missing.token: no such file or directory"},
-		{"admin token file empty", `{"admin": {"port": 9990, "token_file": "/dev/null"}, ` + channel(`"channel.token"`) + `}`, "admin: token file /dev/null is empty"},
-		{"channel token file missing", `{` + adminOK + `, ` + channel(`"missing.token"`) + `}`, "channel solo: reading token file: open missing.token: no such file or directory"},
-		{"channel token file empty", `{` + adminOK + `, ` + channel(`"/dev/null"`) + `}`, "channel solo: token file /dev/null is empty"},
+		{"admin token file missing", `{"admin": {"port": 9990, "token_file": "missing.token"}, ` + channel(bearer(`"channel.token"`)) + `}`, "admin: reading token file: open missing.token: no such file or directory"},
+		{"admin token file empty", `{"admin": {"port": 9990, "token_file": "/dev/null"}, ` + channel(bearer(`"channel.token"`)) + `}`, "admin: token file /dev/null is empty"},
+		{"channel token file missing", `{` + adminOK + `, ` + channel(bearer(`"missing.token"`)) + `}`, "channel solo: reading token file: open missing.token: no such file or directory"},
+		{"channel token file empty", `{` + adminOK + `, ` + channel(bearer(`"/dev/null"`)) + `}`, "channel solo: token file /dev/null is empty"},
+		{"channel password file missing", `{` + adminOK + `, ` + channel(basic(`"missing.password"`)) + `}`, "channel solo: reading password file: open missing.password: no such file or directory"},
+		{"channel password file empty", `{` + adminOK + `, ` + channel(basic(`"/dev/null"`)) + `}`, "channel solo: password file /dev/null is empty"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

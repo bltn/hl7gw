@@ -30,8 +30,8 @@ type attempt struct {
 	err        error
 }
 
-func newClient(u *url.URL, token string, stopping <-chan struct{}) *client {
-	return &client{client: &http.Client{Timeout: httpTimeout}, url: u, authorization: "Bearer " + token, stopping: stopping}
+func newClient(u *url.URL, authorization string, stopping <-chan struct{}) *client {
+	return &client{client: &http.Client{Timeout: httpTimeout}, url: u, authorization: authorization, stopping: stopping}
 }
 
 func (c *client) postHL7Message(ctx context.Context, message string) ([]attempt, error) {
@@ -60,14 +60,14 @@ func (c *client) do(ctx context.Context, message string) attempt {
 	a := attempt{at: time.Now()}
 
 	req := &http.Request{
-		Method: "POST",
-		URL:    c.url,
-		Header: http.Header{
-			"Authorization": {c.authorization},
-			"Content-Type":  {"application/xml"},
-		},
+		Method:        "POST",
+		URL:           c.url,
+		Header:        http.Header{"Content-Type": {"application/xml"}},
 		Body:          io.NopCloser(strings.NewReader(message)),
 		ContentLength: int64(len(message)),
+	}
+	if c.authorization != "" {
+		req.Header.Set("Authorization", c.authorization)
 	}
 
 	resp, err := c.client.Do(req.WithContext(ctx))

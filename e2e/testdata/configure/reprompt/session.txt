@@ -1,15 +1,52 @@
+a/b
 adt
+99999
+abc
 
-
-
+0s
+300
+5m
+-3
+10
+maybe
 
 /hl7
+ftp://x/
+http://[::1
 https://api.example.com/hl7
+token
 
-n
-eighty
+
+maybe
+y
+adt
+lab
 2575
 
 
 
+y
 
+/etc/hl7gw/server-cert.pem
+/etc/hl7gw/server-key.pem
+/etc/hl7gw/client-ca.pem
+1.1
+1.3
+http://10.0.0.5/hl7
+basic
+
+svc:lab
+svc-lab
+
+n
+eighty
+70000
+2575
+9000
+
+loud
+debug
+xml
+json
+0s
+30s

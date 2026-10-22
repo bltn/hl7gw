@@ -8,13 +8,13 @@ hl7gw run -config /etc/hl7gw/hl7gw.json
 
 `hl7gw configure` writes one interactively. It asks for every option below
 (the mutual TLS material only when a channel requires client certificates),
-rejects invalid answers on the spot, always sets `destination.auth.type` to
-`bearer`, and generates the admin API token into `admin.token` beside the
+rejects invalid answers on the spot, asks which `destination.auth.type` each
+channel uses, and generates the admin API token into `admin.token` beside the
 config file.
 
 Unknown keys are rejected. The gateway refuses to start, with an `error: …`
-line on stderr, if the file is invalid, if a token file is missing or empty,
-or if TLS material can't be loaded.
+line on stderr, if the file is invalid, if a token or password file is missing
+or empty, or if TLS material can't be loaded.
 
 Durations are Go duration strings: `30s`, `1m`, `2h`, `1h30m`. Paths are
 resolved against the working directory the gateway runs from.
@@ -23,7 +23,7 @@ resolved against the working directory the gateway runs from.
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `admin.port` | yes | | Port for the admin API, metrics and probes. Must not clash with a channel port. |
+| `admin.port` | yes | | Port (1–65535) for the admin API, metrics and probes. Must not clash with a channel port. |
 | `admin.token_file` | yes | | File holding the admin API bearer token. Surrounding whitespace is trimmed. |
 | `channels` | | `[]` | The channels, described below. |
 | `data_dir` | | `data` | Directory for the journals. Each channel writes `<data_dir>/<channel>.db`. |
@@ -36,13 +36,32 @@ resolved against the working directory the gateway runs from.
 | Key | Required | Default | Meaning |
 |---|---|---|---|
 | `name` | yes | | Letters, digits, `_` and `-`. Unique. Used in the database file name, metrics labels and admin API calls. |
-| `source.port` | yes | | The MLLP port. Unique across channels. |
+| `source.port` | yes | | The MLLP port (1–65535). Unique across channels. |
 | `source.idle_timeout` | yes | | Close a connection that hasn't started a new message within this time. |
 | `source.max_connections` | | `64` | Concurrent connections. At the limit, the listener pauses accepting new ones. |
 | `source.tls.mode` | yes | | `off` or `mtls`. |
 | `destination.url` | yes | | Absolute `http` or `https` URL that messages are POSTed to. |
-| `destination.auth.type` | yes | | Must be `bearer`. |
-| `destination.auth.token_file` | yes | | File holding the bearer token sent to the destination. Surrounding whitespace is trimmed. |
+| `destination.auth.type` | yes | | `none`, `bearer` or `basic`. |
+| `destination.auth.token_file` | bearer only | | File holding the bearer token sent to the destination. Surrounding whitespace is trimmed. |
+| `destination.auth.username` | basic only | | Username for HTTP Basic auth. Must not contain `:`. |
+| `destination.auth.password_file` | basic only | | File holding the Basic auth password. Surrounding whitespace is trimmed. |
+
+### Destination auth
+
+`destination.auth` is always required, and `type` says how each message is
+authenticated to the destination:
+
+- `bearer` sends `Authorization: Bearer <token>`, with the token read from
+  `token_file`.
+- `basic` sends `Authorization: Basic <base64(username:password)>`, with the
+  password read from `password_file`.
+- `none` sends no `Authorization` header. It has to be written down rather
+  than being the default so that a channel never goes out unauthenticated
+  because a key was forgotten.
+
+A key that belongs to another type (`token_file` under `basic`, `username`
+under `bearer`, anything but `type` under `none`) is rejected at startup, so a
+stale key can't be silently ignored.
 
 ### Mutual TLS
 
@@ -64,7 +83,7 @@ This is checked during the handshake, before any MLLP bytes are read. Every
 - A file that is missing, unparsable or mismatched is logged and ignored, and
   the previously loaded material stays in use.
 
-Token files are read once at startup; changing one needs a restart.
+Token and password files are read once at startup; changing one needs a restart.
 
 ## Fixed limits
 

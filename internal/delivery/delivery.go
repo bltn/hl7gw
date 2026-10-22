@@ -24,7 +24,7 @@ type Deliverer struct {
 
 func New(ch config.Channel, st *store.Store, stopping <-chan struct{}, log *slog.Logger, m *metrics.Channel) *Deliverer {
 	return &Deliverer{
-		client: newClient(ch.Destination.URL.URL, ch.Destination.Auth.Token(), stopping),
+		client: newClient(ch.Destination.URL.URL, ch.Destination.Auth.Authorization(), stopping),
 		store:  st,
 		log:    log,
 		m:      m,

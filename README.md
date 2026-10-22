@@ -44,7 +44,7 @@ See [docs/configuration.md](docs/configuration.md) for every option.
 
 **3. Run it**
 
-Put each destination's bearer token in its file, then start the gateway:
+Put each destination's bearer token (or Basic auth password) in its file, then start the gateway:
 
 ```sh
 echo your-api-token > adt.token

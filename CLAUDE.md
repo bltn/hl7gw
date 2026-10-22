@@ -22,3 +22,7 @@ When a ticket is speculative or carries an open question — "is X right?",
 you ran with: the answer (yes/no/the decision), and the reasoning that got
 you there. Don't leave the question hanging for the reviewer to re-derive;
 land on a position and show your work.
+
+Coverage lives in e2e tests. If anything in the PR is covered only by a unit
+test, the description names it and says why e2e couldn't reach it (see
+`.claude/rules/tests.md`).

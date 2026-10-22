@@ -116,13 +116,6 @@ func positive(n int) error {
 	return nil
 }
 
-func port(n int) error {
-	if n < 1 || n > maxPort {
-		return fmt.Errorf("must be a port between 1 and %d", maxPort)
-	}
-	return nil
-}
-
 func nonEmpty(s string) error {
 	if s == "" {
 		return errors.New("must not be empty")

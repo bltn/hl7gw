@@ -63,12 +63,16 @@ type apiMessagesPage struct {
 	} `json:"links"`
 }
 
+type apiAuth struct {
+	Type         string `json:"type"`
+	TokenFile    string `json:"token_file"`
+	Username     string `json:"username"`
+	PasswordFile string `json:"password_file"`
+}
+
 type destination struct {
-	URL  string `json:"url"`
-	Auth struct {
-		Type      string `json:"type"`
-		TokenFile string `json:"token_file"`
-	} `json:"auth"`
+	URL  string  `json:"url"`
+	Auth apiAuth `json:"auth"`
 }
 
 type apiChannelTLS struct {

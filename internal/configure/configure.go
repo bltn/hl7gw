@@ -16,6 +16,7 @@ import (
 
 	"github.com/bltn/hl7gw/internal/config"
 	"github.com/bltn/hl7gw/internal/console"
+	itls "github.com/bltn/hl7gw/internal/tls"
 )
 
 var (
@@ -28,15 +29,8 @@ const (
 	defaultChannelPort = 2575
 	defaultIdleTimeout = config.Duration(time.Minute)
 	defaultMinVersion  = "1.2"
-	maxPort            = 65535
 	adminTokenName     = "admin.token"
 	adminTokenBytes    = 32
-)
-
-var (
-	logLevels   = []string{"debug", "info", "warn", "error"}
-	logFormats  = []string{config.LogFormatAuto, config.LogFormatJSON, config.LogFormatText}
-	tlsVersions = []string{"1.2", "1.3"}
 )
 
 func Run(path string, in io.Reader, out io.Writer, term console.Terminal) error {
@@ -72,9 +66,12 @@ func Run(path string, in io.Reader, out io.Writer, term console.Terminal) error 
 	if !created {
 		status = "already existed, left unchanged"
 	}
-	p.printf("\n%s\n\nNext steps:\n  Admin API token: %s (%s)\n  Put each destination's bearer token in its file:\n", term.Success("Wrote "+path), cfg.Admin.TokenFile, status)
-	for _, file := range tokenFiles(cfg) {
-		p.printf("    %s\n", file)
+	p.printf("\n%s\n\nNext steps:\n  Admin API token: %s (%s)\n", term.Success("Wrote "+path), cfg.Admin.TokenFile, status)
+	if files := secretFiles(cfg); len(files) > 0 {
+		p.printf("  Put each destination's bearer token or password in its file:\n")
+		for _, file := range files {
+			p.printf("    %s\n", file)
+		}
 	}
 	p.printf("  ./hl7gw run -config %s\n", path)
 	return nil
@@ -102,8 +99,8 @@ func collect(p *prompter, dir string) config.Config {
 
 	p.heading("General")
 	cfg.DataDir = p.ask("Data directory", config.DefaultDataDir, nonEmpty)
-	cfg.Log.Level = p.choose("Log level", logLevels, config.DefaultLogLevel)
-	cfg.Log.Format = p.choose("Log format", logFormats, config.LogFormatAuto)
+	cfg.Log.Level = p.choose("Log level", config.LogLevels, config.DefaultLogLevel)
+	cfg.Log.Format = p.choose("Log format", config.LogFormats, config.LogFormatAuto)
 
 	cfg.CertReloadInterval = config.DefaultCertReloadInterval
 	if slices.ContainsFunc(cfg.Channels, func(ch config.Channel) bool { return ch.Source.TLS.Mode == config.TLSModeMTLS }) {
@@ -138,21 +135,26 @@ func channel(p *prompter, dir string, taken map[int]bool, names map[string]bool,
 		t.CertFile = p.ask("Server certificate file", "", nonEmpty)
 		t.KeyFile = p.ask("Server private key file", "", nonEmpty)
 		t.ClientCAFile = p.ask("Client CA bundle file", "", nonEmpty)
-		t.MinVersion = p.choose("Minimum TLS version", tlsVersions, defaultMinVersion)
+		t.MinVersion = p.choose("Minimum TLS version", itls.Versions, defaultMinVersion)
 	}
 	ch.Source.TLS = t
 
 	p.ask("Forward messages to (URL)", "", func(s string) error { return ch.Destination.URL.UnmarshalText([]byte(s)) })
-	ch.Destination.Auth = &config.Auth{
-		Type:      "bearer",
-		TokenFile: p.ask("Bearer token file", filepath.Join(dir, ch.Name+".token"), nonEmpty),
+	auth := &config.Auth{Type: p.choose("Destination auth", config.AuthTypes, config.AuthBearer)}
+	switch auth.Type {
+	case config.AuthBearer:
+		auth.TokenFile = p.ask("Bearer token file", filepath.Join(dir, ch.Name+".token"), nonEmpty)
+	case config.AuthBasic:
+		auth.Username = p.ask("Username", "", config.ValidateUsername)
+		auth.PasswordFile = p.ask("Password file", filepath.Join(dir, ch.Name+".password"), nonEmpty)
 	}
+	ch.Destination.Auth = auth
 	return ch
 }
 
 func freePort(taken map[int]bool) func(int) error {
 	return func(n int) error {
-		if err := port(n); err != nil {
+		if err := config.ValidatePort(n); err != nil {
 			return err
 		}
 		if taken[n] {
@@ -176,11 +178,11 @@ func writeAdminToken(path string) (bool, error) {
 	return true, errors.Join(writeErr, f.Close())
 }
 
-func tokenFiles(cfg config.Config) []string {
+func secretFiles(cfg config.Config) []string {
 	var files []string
 	for _, ch := range cfg.Channels {
-		if !slices.Contains(files, ch.Destination.Auth.TokenFile) {
-			files = append(files, ch.Destination.Auth.TokenFile)
+		if file := ch.Destination.Auth.SecretFile(); file != "" && !slices.Contains(files, file) {
+			files = append(files, file)
 		}
 	}
 	return files

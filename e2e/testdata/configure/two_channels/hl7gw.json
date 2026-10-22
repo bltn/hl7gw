@@ -45,8 +45,9 @@
       "destination": {
         "url": "http://10.0.0.5/hl7",
         "auth": {
-          "type": "bearer",
-          "token_file": "lab.token"
+          "type": "basic",
+          "username": "svc-lab",
+          "password_file": "lab.password"
         }
       }
     }

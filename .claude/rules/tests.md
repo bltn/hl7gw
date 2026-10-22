@@ -14,3 +14,8 @@ string literals in test code. Inline literals are for the cases a file
 cannot serve: payloads built around runtime values (a rotating control ID,
 a generated giant field), and intentionally broken fragments where the
 exact bytes are the case's subject and belong beside the case name.
+
+Coverage belongs at the e2e level. When a behaviour genuinely cannot be
+reached by an e2e test (no pty for the binary, an injected I/O fault, a race
+only an in-process harness can force), keep the unit test and name that
+behaviour in the PR description with the reason e2e could not cover it.
