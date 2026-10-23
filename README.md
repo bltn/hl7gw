@@ -36,9 +36,10 @@ curl -fsSL "https://github.com/bltn/hl7gw/releases/latest/download/hl7gw_$(uname
 
 ## How it works
 
-hl7gw receives HL7v2 over MLLP, journals it to SQLite, POSTs it to your API as
-XML, and only then ACKs the sender. `AA` means delivered, there's no queue to
-run, and senders slow to your API's pace on their own.
+hl7gw receives HL7v2 over MLLP, persists it to SQLite, POSTs it to your API as
+XML, and only then ACKs the sender.
+
+See the [architecture doc](ARCHITECTURE.md) for more details.
 
 ## Documentation
 
