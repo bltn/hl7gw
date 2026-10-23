@@ -33,6 +33,8 @@ const (
 	adminTokenBytes    = 32
 )
 
+var tlsModes = []string{config.TLSModeOff, "mTLS"}
+
 func Run(path string, in io.Reader, out io.Writer, term console.Terminal) error {
 	p := &prompter{in: bufio.NewReader(in), out: out, term: term}
 
@@ -83,37 +85,32 @@ func collect(p *prompter, dir string) config.Config {
 	taken := map[int]bool{}
 	names := map[string]bool{}
 	nextPort := defaultChannelPort
-	for {
-		p.heading(fmt.Sprintf("Channel %d", len(cfg.Channels)+1))
+	for more := true; more; {
+		done := p.section(fmt.Sprintf("Channel %d", len(cfg.Channels)+1))
 		ch := channel(p, dir, taken, names, nextPort)
 		cfg.Channels = append(cfg.Channels, ch)
 		nextPort = ch.Source.Port + 1
-		if !p.confirm("Add another channel?") {
-			break
-		}
+		more = p.confirm("Add another channel?")
+		done()
 	}
 
-	p.heading("Admin API")
-	cfg.Admin.Port = p.askInt("Admin port", defaultAdminPort, freePort(taken))
+	done := p.section("Admin")
+	cfg.Admin.Port = p.askInt("Port", defaultAdminPort, freePort(taken))
 	cfg.Admin.TokenFile = filepath.Join(dir, adminTokenName)
+	done()
 
-	p.heading("General")
+	p.printf("\n")
 	cfg.DataDir = p.ask("Data directory", config.DefaultDataDir, nonEmpty)
-	cfg.Log.Level = p.choose("Log level", config.LogLevels, config.DefaultLogLevel)
-	cfg.Log.Format = p.choose("Log format", config.LogFormats, config.LogFormatAuto)
 
+	cfg.Log.Level = config.DefaultLogLevel
+	cfg.Log.Format = config.LogFormatAuto
 	cfg.CertReloadInterval = config.DefaultCertReloadInterval
-	if slices.ContainsFunc(cfg.Channels, func(ch config.Channel) bool { return ch.Source.TLS.Mode == config.TLSModeMTLS }) {
-		p.heading("TLS")
-		cfg.CertReloadInterval = p.askDuration("Certificate reload interval", config.DefaultCertReloadInterval)
-	}
 	return cfg
 }
 
 func channel(p *prompter, dir string, taken map[int]bool, names map[string]bool, defaultPort int) config.Channel {
 	var ch config.Channel
-
-	ch.Name = p.ask("Channel name (e.g. adt, lab-results)", "", func(s string) error {
+	ch.Name = p.ask("Name (e.g. adt, lab-results)", "", func(s string) error {
 		if err := config.ValidateChannelName(s); err != nil {
 			return err
 		}
@@ -123,33 +120,45 @@ func channel(p *prompter, dir string, taken map[int]bool, names map[string]bool,
 		return nil
 	})
 	names[ch.Name] = true
-
-	ch.Source.Port = p.askInt("Listen port (MLLP)", defaultPort, freePort(taken))
-	taken[ch.Source.Port] = true
-	ch.Source.IdleTimeout = p.askDuration("Idle timeout", defaultIdleTimeout)
-	ch.Source.MaxConnections = p.askInt("Max concurrent connections", config.DefaultMaxTCPConnections, positive)
-
-	t := &config.TLS{Mode: config.TLSModeOff}
-	if p.confirm("Require client certificates (mTLS)?") {
-		t.Mode = config.TLSModeMTLS
-		t.CertFile = p.ask("Server certificate file", "", nonEmpty)
-		t.KeyFile = p.ask("Server private key file", "", nonEmpty)
-		t.ClientCAFile = p.ask("Client CA bundle file", "", nonEmpty)
-		t.MinVersion = p.choose("Minimum TLS version", itls.Versions, defaultMinVersion)
-	}
-	ch.Source.TLS = t
-
-	p.ask("Forward messages to (URL)", "", func(s string) error { return ch.Destination.URL.UnmarshalText([]byte(s)) })
-	auth := &config.Auth{Type: p.choose("Destination auth", config.AuthTypes, config.AuthBearer)}
-	switch auth.Type {
-	case config.AuthBearer:
-		auth.TokenFile = p.ask("Bearer token file", filepath.Join(dir, ch.Name+".token"), nonEmpty)
-	case config.AuthBasic:
-		auth.Username = p.ask("Username", "", config.ValidateUsername)
-		auth.PasswordFile = p.ask("Password file", filepath.Join(dir, ch.Name+".password"), nonEmpty)
-	}
-	ch.Destination.Auth = auth
+	ch.Source = source(p, taken, defaultPort)
+	ch.Destination = destination(p, dir, ch.Name)
 	return ch
+}
+
+func source(p *prompter, taken map[int]bool, defaultPort int) config.Source {
+	defer p.section("Source")()
+	var src config.Source
+	src.Port = p.askInt("Listen port (MLLP)", defaultPort, freePort(taken))
+	taken[src.Port] = true
+	src.IdleTimeout = p.askDuration("Idle timeout", defaultIdleTimeout)
+	src.MaxConnections = p.askInt("Max concurrent connections", config.DefaultMaxTCPConnections, positive)
+
+	defer p.section("TLS")()
+	src.TLS = &config.TLS{Mode: p.choose("Mode", tlsModes, config.TLSModeOff)}
+	if src.TLS.Mode == config.TLSModeMTLS {
+		src.TLS.CertFile = p.ask("Server certificate file", "", nonEmpty)
+		src.TLS.KeyFile = p.ask("Server private key file", "", nonEmpty)
+		src.TLS.ClientCAFile = p.ask("Client CA bundle file", "", nonEmpty)
+		src.TLS.MinVersion = p.choose("Minimum TLS version", itls.Versions, defaultMinVersion)
+	}
+	return src
+}
+
+func destination(p *prompter, dir, name string) config.Destination {
+	defer p.section("Destination")()
+	var dst config.Destination
+	p.ask("URL", "", func(s string) error { return dst.URL.UnmarshalText([]byte(s)) })
+
+	defer p.section("Auth")()
+	dst.Auth = &config.Auth{Type: p.choose("Type", config.AuthTypes, config.AuthBearer)}
+	switch dst.Auth.Type {
+	case config.AuthBearer:
+		dst.Auth.TokenFile = p.ask("Token file", filepath.Join(dir, name+".token"), nonEmpty)
+	case config.AuthBasic:
+		dst.Auth.Username = p.ask("Username", "", config.ValidateUsername)
+		dst.Auth.PasswordFile = p.ask("Password file", filepath.Join(dir, name+".password"), nonEmpty)
+	}
+	return dst
 }
 
 func freePort(taken map[int]bool) func(int) error {

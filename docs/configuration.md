@@ -6,11 +6,12 @@ hl7gw reads a single JSON file given to `run -config`:
 hl7gw run -config /etc/hl7gw/hl7gw.json
 ```
 
-`hl7gw configure` writes one interactively. It asks for every option below
-(the mutual TLS material only when a channel requires client certificates),
-rejects invalid answers on the spot, asks which `destination.auth.type` each
-channel uses, and generates the admin API token into `admin.token` beside the
-config file.
+`hl7gw configure` writes one interactively. It asks for each channel (the
+mutual TLS material only when `source.tls.mode` is `mtls`), the admin port and
+`data_dir`, rejecting invalid answers on the spot. `log.level`, `log.format`
+and `cert_reload_interval` are not asked; they are written with the defaults
+below so they can be edited in the file. The admin API token is generated into
+`admin.token` beside the config file.
 
 Unknown keys are rejected. The gateway refuses to start, with an `error: …`
 line on stderr, if the file is invalid, if a token or password file is missing

@@ -11,7 +11,7 @@ lab
 
 
 
-y
+mtls
 /etc/hl7gw/server-cert.pem
 /etc/hl7gw/server-key.pem
 /etc/hl7gw/client-ca.pem
@@ -23,6 +23,3 @@ svc-lab
 n
 9000
 /var/lib/hl7gw
-debug
-json
-30s

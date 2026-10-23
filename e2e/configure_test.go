@@ -129,8 +129,7 @@ func TestConfigureRepromptsOnInvalidInput(t *testing.T) {
 		"must be one of 1.2, 1.3",
 		`must not contain ":", got "svc:lab"`,
 		"must be a port between 1 and 65535, got 70000",
-		"must be one of debug, info, warn, error",
-		"must be one of auto, json, text",
+		"must be one of off, mTLS",
 	}
 	for _, want := range rejections {
 		if !strings.Contains(res.Stdout, want) {
@@ -177,14 +176,14 @@ func TestConfigureListsEachSecretFileOnce(t *testing.T) {
 func TestConfigureAcceptsFinalLineWithoutNewline(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	res, err := runConfigure(t, dir, strings.TrimSuffix(defaultsSession, "\n")+"text")
+	res, err := runConfigure(t, dir, strings.TrimSuffix(defaultsSession, "\n")+"journals")
 	if err != nil {
 		t.Fatalf("run configure: %v", err)
 	}
 	if res.Code != 0 {
 		t.Errorf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
 	}
-	if got := readConfigured(t, dir, configFileName); !strings.Contains(got, `"format": "text"`) {
+	if got := readConfigured(t, dir, configFileName); !strings.Contains(got, `"data_dir": "journals"`) {
 		t.Errorf("final answer without a newline was not applied\n--- config ---\n%s", got)
 	}
 }
@@ -327,7 +326,7 @@ func TestConfiguredGatewayBoots(t *testing.T) {
 		}
 	}
 
-	session := fmt.Sprintf("%s\n%d\n\n\n\n%s\n\n\ny\n%s\n%d\n\n\ny\n%s\n%s\n%s\n\n%s\n\n\ny\n%s\n%d\n\n\n\n%s\nnone\nn\n%d\n\n\n\n1s\n",
+	session := fmt.Sprintf("%s\n%d\n\n\n\n%s\n\n\ny\n%s\n%d\n\n\nmtls\n%s\n%s\n%s\n\n%s\n\n\ny\n%s\n%d\n\n\n\n%s\nnone\nn\n%d\n\n",
 		channelName, adtPort, sink.URL(),
 		secureChannel, securePort, ct.CertFile, ct.KeyFile, ct.ClientCAFile, sink.URL(),
 		openChannel, openPort, openSink.URL(),

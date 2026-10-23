@@ -25,7 +25,7 @@ lab
 
 
 
-y
+mtls
 
 /etc/hl7gw/server-cert.pem
 /etc/hl7gw/server-key.pem
@@ -44,9 +44,3 @@ eighty
 2575
 9000
 
-loud
-debug
-xml
-json
-0s
-30s

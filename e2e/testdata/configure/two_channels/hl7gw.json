@@ -4,10 +4,10 @@
     "token_file": "admin.token"
   },
   "data_dir": "/var/lib/hl7gw",
-  "cert_reload_interval": "30s",
+  "cert_reload_interval": "2m",
   "log": {
-    "level": "debug",
-    "format": "json"
+    "level": "info",
+    "format": "auto"
   },
   "channels": [
     {

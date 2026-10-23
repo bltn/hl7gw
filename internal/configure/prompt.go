@@ -15,23 +15,33 @@ import (
 )
 
 type prompter struct {
-	in   *bufio.Reader
-	out  io.Writer
-	term console.Terminal
-	err  error
+	in    *bufio.Reader
+	out   io.Writer
+	term  console.Terminal
+	depth int
+	err   error
 }
 
 func (p *prompter) printf(format string, args ...any) {
 	_, _ = fmt.Fprintf(p.out, format, args...)
 }
 
-func (p *prompter) heading(title string) {
-	p.printf("\n%s\n", title)
+func (p *prompter) indent() string {
+	return strings.Repeat("  ", p.depth)
+}
+
+func (p *prompter) section(title string) func() {
+	if p.depth == 0 {
+		p.printf("\n")
+	}
+	p.printf("%s%s\n", p.indent(), title)
+	p.depth++
+	return func() { p.depth-- }
 }
 
 func (p *prompter) ask(label, def string, check func(string) error) string {
 	for p.err == nil {
-		p.printf("  %s%s: ", label, p.hint(def))
+		p.printf("%s%s%s: ", p.indent(), label, p.hint(def))
 		line, err := p.in.ReadString('\n')
 		if line == "" && err != nil {
 			p.err = err
@@ -48,7 +58,7 @@ func (p *prompter) ask(label, def string, check func(string) error) string {
 			answer = def
 		}
 		if err := check(answer); err != nil {
-			p.printf("  %s\n", p.term.Alert(err.Error()))
+			p.printf("%s%s\n", p.indent(), p.term.Alert(err.Error()))
 			continue
 		}
 		return answer
@@ -92,7 +102,7 @@ func (p *prompter) askDuration(label string, def config.Duration) config.Duratio
 
 func (p *prompter) choose(label string, options []string, def string) string {
 	return strings.ToLower(p.ask(label+" ("+strings.Join(options, "/")+")", def, func(s string) error {
-		if !slices.Contains(options, strings.ToLower(s)) {
+		if !slices.ContainsFunc(options, func(o string) bool { return strings.EqualFold(o, s) }) {
 			return errors.New("must be one of " + strings.Join(options, ", "))
 		}
 		return nil
