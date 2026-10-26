@@ -27,9 +27,9 @@ resolved against the working directory the gateway runs from.
 | `admin.port` | yes | | Port (1–65535) for the admin API, metrics and probes. Must not clash with a channel port. |
 | `admin.token_file` | yes | | File holding the admin API bearer token. Surrounding whitespace is trimmed. |
 | `channels` | | `[]` | The channels, described below. |
-| `data_dir` | | `data` | Directory for the journals. Each channel writes `<data_dir>/<channel>.db`. |
+| `data_dir` | | `data` | Directory for the channel databases. Each channel writes `<data_dir>/<channel>.db`. |
 | `cert_reload_interval` | | `2m` | How often mTLS certificates and client CA files are re-read from disk. |
-| `retention` | | `30d` | How long journal rows are kept: a whole number of days such as `30d`, or `off` to keep everything. See [Retention](#retention). |
+| `retention` | | `30d` | How long persisted messages are kept: a whole number of days such as `30d`, or `off` to keep everything. See [Retention](#retention). |
 | `log.level` | | `info` | `debug`, `info`, `warn` or `error`. |
 | `log.format` | | `auto` | `json`, `text` for slog's `key=value` form, or `auto` for `text` on a terminal and `json` otherwise. |
 
@@ -89,19 +89,19 @@ Token and password files are read once at startup; changing one needs a restart.
 
 ### Retention
 
-Every message is journaled, so each channel's database grows with traffic.
+Every message is persisted, so each channel's database grows with traffic.
 `retention` bounds it by age: a message received more than that many days
 ago is deleted, together with its delivery attempts, whatever its ACK or
-delivery outcome was. The journal is operational evidence, not the system of
+delivery outcome was. The database is operational evidence, not the system of
 record; 30 days covers replay and debugging, and a shorter value keeps less
 PHI on disk.
 
-The sweep runs once at startup, after the journals are opened and before any
-MLLP listener or the admin API binds, so a backlog is cleared before new
-traffic arrives and `/readyz` is not answered until it finishes. It then runs
+The sweep runs once at startup, after the channel databases are opened and
+before any MLLP listener or the admin API binds, so a backlog is cleared
+before new traffic arrives and `/readyz` is not answered until it finishes. It then runs
 every hour. Each sweep logs `retention sweep` per channel and counts the rows
 it removed in `hl7gw_messages_pruned_total`. A sweep that fails (a locked or
-damaged journal) is logged as `retention sweep failed` and the gateway
+damaged database) is logged as `retention sweep failed` and the gateway
 carries on; the next hourly sweep retries.
 
 Deleting rows does not shrink the database file: SQLite reuses the freed
@@ -114,7 +114,7 @@ startup, and disk usage is yours to manage.
 
 ## Fixed limits
 
-These aren't configurable yet:
+These aren't configurable:
 
 | Limit | Value |
 |---|---|

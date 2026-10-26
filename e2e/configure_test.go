@@ -176,14 +176,14 @@ func TestConfigureListsEachSecretFileOnce(t *testing.T) {
 func TestConfigureAcceptsFinalLineWithoutNewline(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	res, err := runConfigure(t, dir, strings.TrimSuffix(defaultsSession, "\n")+"journals")
+	res, err := runConfigure(t, dir, strings.TrimSuffix(defaultsSession, "\n")+"databases")
 	if err != nil {
 		t.Fatalf("run configure: %v", err)
 	}
 	if res.Code != 0 {
 		t.Errorf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
 	}
-	if got := readConfigured(t, dir, configFileName); !strings.Contains(got, `"data_dir": "journals"`) {
+	if got := readConfigured(t, dir, configFileName); !strings.Contains(got, `"data_dir": "databases"`) {
 		t.Errorf("final answer without a newline was not applied\n--- config ---\n%s", got)
 	}
 }

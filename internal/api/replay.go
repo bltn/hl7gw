@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bltn/hl7gw/internal/journal"
 	"github.com/bltn/hl7gw/internal/processor"
+	"github.com/bltn/hl7gw/internal/record"
 )
 
 type replayRequestJSON struct {
@@ -24,7 +24,7 @@ type replayAttemptJSON struct {
 	Origin             string  `json:"origin"`
 }
 
-func toReplayAttemptJSON(a journal.Attempt) replayAttemptJSON {
+func toReplayAttemptJSON(a record.Attempt) replayAttemptJSON {
 	return replayAttemptJSON{
 		AttemptedAt:        a.AttemptedAt.UTC().Format(milliRFC3339),
 		Outcome:            string(a.Outcome),

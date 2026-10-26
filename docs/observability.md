@@ -3,7 +3,8 @@
 hl7gw writes structured logs to stdout, serves Prometheus metrics, and
 answers liveness and readiness probes, so it fits whatever monitoring stack
 you already run. Message bodies, transformed XML and ACK payloads are never
-logged. They're kept in the journal and can be read through the admin API.
+logged. They're persisted in the channel's database and can be read through
+the admin API.
 
 ## Logs
 
@@ -30,8 +31,8 @@ start. The optional `log` config block controls the output:
 
 hl7gw never writes a log file of its own, so log rotation and retention
 belong to whatever collects stdout: journald, Docker's log driver, the
-kubelet, or logrotate on a redirected file. The journal is the exception;
-its retention is the gateway's job (see
+kubelet, or logrotate on a redirected file. The channel databases are the
+exception; their retention is the gateway's job (see
 [configuration.md](configuration.md#retention)).
 
 On a terminal, `text` output is coloured and startup prints a short `hl7gw`
@@ -46,8 +47,9 @@ stdout is not a terminal, and it is not a log record.
 ```
 
 Every record carries `time`, `level` and `msg`. Records about a channel also
-carry `channel`, and records about a message carry `message_id` (the journal
-row id). Error text is in `err`, and elapsed times are in `duration_ms`.
+carry `channel`, and records about a message carry `message_id` (the
+message's row id in the channel database). Error text is in `err`, and
+elapsed times are in `duration_ms`.
 
 The `msg` values below are a stable contract:
 
@@ -136,10 +138,10 @@ backpressure holds the sender instead of returning an error.
 - `GET /healthz` answers `200 ok` whenever the process is serving HTTP. It
   checks nothing else, so an orchestrator only restarts the gateway when it's
   wedged.
-- `GET /readyz` answers `200 ok` when every channel's journal database
+- `GET /readyz` answers `200 ok` when every channel's database
   answers a query. If one doesn't, it answers `503` with problem details
   naming the channel. The downstream API is deliberately not probed: the
-  gateway's job is to accept and journal messages whether or not the
+  gateway's job is to accept and persist messages whether or not the
   downstream is reachable, and downstream health is visible in
   `hl7gw_delivery_attempts_total`.
 

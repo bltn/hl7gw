@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bltn/hl7gw/internal/journal"
+	"github.com/bltn/hl7gw/internal/record"
 	"github.com/bltn/hl7gw/internal/store"
 )
 
@@ -38,7 +38,7 @@ type attemptJSON struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func toAttemptJSON(a journal.Attempt) attemptJSON {
+func toAttemptJSON(a record.Attempt) attemptJSON {
 	return attemptJSON{
 		replayAttemptJSON: toReplayAttemptJSON(a),
 		CreatedAt:         a.CreatedAt.UTC().Format(time.RFC3339),
@@ -130,7 +130,7 @@ func (a *api) getMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toMessageJSON(m journal.Message) messageJSON {
+func toMessageJSON(m record.Message) messageJSON {
 	attempts := make([]attemptJSON, 0, len(m.Attempts))
 	for _, a := range m.Attempts {
 		attempts = append(attempts, toAttemptJSON(a))

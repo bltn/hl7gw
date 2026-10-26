@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/bltn/hl7gw/internal/config"
-	"github.com/bltn/hl7gw/internal/journal"
+	"github.com/bltn/hl7gw/internal/record"
 	_ "modernc.org/sqlite"
 )
 
@@ -81,7 +81,7 @@ func (s *Store) CreateMessage(ctx context.Context, receivedAt time.Time, raw str
 	return id, err
 }
 
-func (s *Store) RecordTransform(ctx context.Context, id int64, xml string, terr journal.TransformError) error {
+func (s *Store) RecordTransform(ctx context.Context, id int64, xml string, terr record.TransformError) error {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 
@@ -91,7 +91,7 @@ func (s *Store) RecordTransform(ctx context.Context, id int64, xml string, terr 
 	return err
 }
 
-func (s *Store) RecordDeliveryAttempt(ctx context.Context, messageID int64, a journal.Attempt) error {
+func (s *Store) RecordDeliveryAttempt(ctx context.Context, messageID int64, a record.Attempt) error {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 
@@ -107,7 +107,7 @@ func (s *Store) RecordAck(ctx context.Context, id int64, ack string, sentAt time
 
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE messages SET ack = ?, ack_sent_at = ?, ack_outcome = ? WHERE id = ?",
-		ack, sentAt.UnixMilli(), string(journal.OutcomeOf(sent)), id)
+		ack, sentAt.UnixMilli(), string(record.OutcomeOf(sent)), id)
 	return err
 }
 

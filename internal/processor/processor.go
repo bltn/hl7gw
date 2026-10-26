@@ -10,8 +10,8 @@ import (
 	"github.com/bltn/hl7gw/internal/config"
 	"github.com/bltn/hl7gw/internal/delivery"
 	"github.com/bltn/hl7gw/internal/hl7"
-	"github.com/bltn/hl7gw/internal/journal"
 	"github.com/bltn/hl7gw/internal/metrics"
+	"github.com/bltn/hl7gw/internal/record"
 	"github.com/bltn/hl7gw/internal/store"
 )
 
@@ -37,7 +37,7 @@ type Result struct {
 	Outcome   Outcome
 	MessageID int64
 	Message   hl7.Message
-	Attempts  []journal.Attempt
+	Attempts  []record.Attempt
 }
 
 type Processor struct {
@@ -70,14 +70,14 @@ func (p *Processor) ParseTransformDeliver(ctx context.Context, msg string) Resul
 
 	ev := evaluate(msg)
 	outcome := Success
-	var attempts []journal.Attempt
+	var attempts []record.Attempt
 	switch ev.class {
 	case uncorrelatable:
-		r.transform(ctx, "", journal.CouldNotParseHL7)
+		r.transform(ctx, "", record.CouldNotParseHL7)
 		r.log.Warn("dropping uncorrelatable message")
 		return r.finish(Uncorrelatable, hl7.Message{}, nil)
 	case parseFailed:
-		r.transform(ctx, "", journal.CouldNotParseHL7)
+		r.transform(ctx, "", record.CouldNotParseHL7)
 		outcome = ParseFailed
 	case parsed:
 		r.transform(ctx, ev.xml, "")
@@ -85,7 +85,7 @@ func (p *Processor) ParseTransformDeliver(ctx context.Context, msg string) Resul
 			logMissingRequiredFields(r.log, ev)
 
 			var err error
-			attempts, err = p.deliverer.Deliver(ctx, r.id, ev.xml, journal.Inbound)
+			attempts, err = p.deliverer.Deliver(ctx, r.id, ev.xml, record.Inbound)
 			switch {
 			case errors.Is(err, delivery.ErrDeliveryFailed):
 				outcome = DeliveryFailed
@@ -111,18 +111,18 @@ const (
 
 type DryRunResult struct {
 	Outcome DryRunOutcome
-	Message journal.Message
+	Message record.Message
 }
 
 func (p *Processor) ParseTransformDryRun(_ context.Context, msg string) DryRunResult {
 	ev := evaluate(msg)
-	res := DryRunResult{Outcome: DryRunSuccess, Message: journal.Message{ReceivedAt: time.Now(), Raw: msg}}
+	res := DryRunResult{Outcome: DryRunSuccess, Message: record.Message{ReceivedAt: time.Now(), Raw: msg}}
 	switch ev.class {
 	case uncorrelatable:
 		p.log.Warn("dropping uncorrelatable message")
 		res.Outcome = DryRunUncorrelatable
 	case parseFailed:
-		terr := string(journal.CouldNotParseHL7)
+		terr := string(record.CouldNotParseHL7)
 		res.Outcome = DryRunParseFailed
 		res.Message.TransformError = &terr
 	case parsed:
@@ -145,7 +145,7 @@ const (
 
 type ReplayResult struct {
 	Outcome ReplayOutcome
-	Attempt journal.Attempt
+	Attempt record.Attempt
 }
 
 func (p *Processor) Replay(ctx context.Context, messageID int64) ReplayResult {
@@ -167,7 +167,7 @@ func (p *Processor) replay(ctx context.Context, ml *slog.Logger, messageID int64
 		return ReplayResult{Outcome: ReplayNotYetDelivered}
 	}
 
-	attempts, err := p.deliverer.Deliver(ctx, messageID, *m.XML, journal.Replay)
+	attempts, err := p.deliverer.Deliver(ctx, messageID, *m.XML, record.Replay)
 	switch {
 	case errors.Is(err, delivery.ErrDeliveryFailed):
 		return ReplayResult{Outcome: ReplayDeliveryFailed}
@@ -258,7 +258,7 @@ func (p *Processor) begin(ctx context.Context, raw string) *recorder {
 	return r
 }
 
-func (r *recorder) finish(outcome Outcome, msg hl7.Message, attempts []journal.Attempt) Result {
+func (r *recorder) finish(outcome Outcome, msg hl7.Message, attempts []record.Attempt) Result {
 	r.p.m.MessagesTotal.WithLabelValues(strings.ToLower(string(outcome))).Inc()
 	attrs := []any{
 		"control_id", msg.MSH.ControlID(), "message_type", msg.MSH.MessageType(), "outcome", outcome,
@@ -271,7 +271,7 @@ func (r *recorder) finish(outcome Outcome, msg hl7.Message, attempts []journal.A
 	return Result{Outcome: outcome, MessageID: r.id, Message: msg, Attempts: attempts}
 }
 
-func (r *recorder) transform(ctx context.Context, xml string, terr journal.TransformError) {
+func (r *recorder) transform(ctx context.Context, xml string, terr record.TransformError) {
 	if r.err != nil {
 		return
 	}

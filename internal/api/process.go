@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bltn/hl7gw/internal/journal"
 	"github.com/bltn/hl7gw/internal/processor"
+	"github.com/bltn/hl7gw/internal/record"
 )
 
 type processRequestJSON struct {
@@ -98,7 +98,7 @@ type dryRunMessageJSON struct {
 	TransformError *string `json:"transform_error"`
 }
 
-func toDryRunMessageJSON(m journal.Message) dryRunMessageJSON {
+func toDryRunMessageJSON(m record.Message) dryRunMessageJSON {
 	return dryRunMessageJSON{
 		ReceivedAt:     m.ReceivedAt.UTC().Format(milliRFC3339),
 		RawMessage:     m.Raw,

@@ -304,7 +304,7 @@ paths:
     get:
       operationId: readyz
       summary: Readiness probe
-      description: Answers 200 when every channel's journal database answers a query, and 503 naming the first channel whose database does not. The downstream destination is deliberately not probed; the gateway accepts and journals messages whether or not it is reachable.
+      description: Answers 200 when every channel's database answers a query, and 503 naming the first channel whose database does not. The downstream destination is deliberately not probed; the gateway accepts and persists messages whether or not it is reachable.
       tags: [Operations]
       security: []
       responses:
@@ -488,7 +488,7 @@ components:
             status: 502
             detail: replay delivery failed
     ServiceUnavailable:
-      description: A channel's journal database is not answering.
+      description: A channel's database is not answering.
       content:
         application/problem+json:
           schema:

@@ -83,10 +83,10 @@ func TestCorpusSmoke(t *testing.T) {
 	for i, row := range rows {
 		m, as := msgs[i], byMessage[row.ID]
 		if row.Raw != m.Wire {
-			t.Errorf("%s: journaled raw message differs from what was sent", m.Name)
+			t.Errorf("%s: persisted raw message differs from what was sent", m.Name)
 		}
 		if row.XML == nil {
-			t.Errorf("%s: no transform journaled", m.Name)
+			t.Errorf("%s: no transform persisted", m.Name)
 		} else if err := wellFormedXML(*row.XML); err != nil {
 			t.Errorf("%s: transform is not well-formed XML: %v", m.Name, err)
 		}

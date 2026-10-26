@@ -10,7 +10,7 @@ import (
 	"github.com/bltn/hl7gw/e2e/internal/harness"
 )
 
-func TestJournaledMessagesSurviveKillAndRestart(t *testing.T) {
+func TestPersistedMessagesSurviveKillAndRestart(t *testing.T) {
 	t.Parallel()
 	sink, releaseOne := harness.NewGatedSink(t, http.StatusOK, sinkBody)
 	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL()})
@@ -103,7 +103,7 @@ func TestJournaledMessagesSurviveKillAndRestart(t *testing.T) {
 	for i, row := range rows {
 		id, as := wantIDs[i], byMessage[row.ID]
 		if cid, _ := harness.Field(row.Raw, "MSH", 10); cid != id {
-			t.Errorf("row %d journals %q, want %s", i, cid, id)
+			t.Errorf("row %d holds %q, want %s", i, cid, id)
 		}
 		if row.XML == nil {
 			t.Errorf("row %d (%s) has no transform", i, id)

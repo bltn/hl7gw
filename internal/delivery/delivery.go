@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/bltn/hl7gw/internal/config"
-	"github.com/bltn/hl7gw/internal/journal"
 	"github.com/bltn/hl7gw/internal/metrics"
+	"github.com/bltn/hl7gw/internal/record"
 	"github.com/bltn/hl7gw/internal/store"
 )
 
@@ -31,14 +31,14 @@ func New(ch config.Channel, st *store.Store, stopping <-chan struct{}, log *slog
 	}
 }
 
-func (d *Deliverer) Deliver(ctx context.Context, messageID int64, xml string, origin journal.Origin) ([]journal.Attempt, error) {
+func (d *Deliverer) Deliver(ctx context.Context, messageID int64, xml string, origin record.Origin) ([]record.Attempt, error) {
 	attempts, postErr := d.client.postHL7Message(ctx, xml)
-	recorded := make([]journal.Attempt, 0, len(attempts))
+	recorded := make([]record.Attempt, 0, len(attempts))
 	originLabel := strings.ToLower(string(origin))
 	for i, a := range attempts {
-		ja := journal.Attempt{
+		ja := record.Attempt{
 			AttemptedAt: a.at,
-			Outcome:     journal.OutcomeOf(a.err == nil),
+			Outcome:     record.OutcomeOf(a.err == nil),
 			Payload:     xml,
 			Origin:      origin,
 		}

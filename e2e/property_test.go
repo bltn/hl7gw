@@ -71,7 +71,7 @@ func TestPropertyStreamedMessagesAckedInOrder(t *testing.T) {
 	for i, row := range msgs {
 		cid, _ := harness.Field(row.Raw, "MSH", 10)
 		if cid != sent[i].ControlID {
-			t.Errorf("row %d journals control ID %q, want %q", i, cid, sent[i].ControlID)
+			t.Errorf("row %d holds control ID %q, want %q", i, cid, sent[i].ControlID)
 		}
 		if row.XML == nil {
 			t.Errorf("row %d (%s) has no transform", i, cid)

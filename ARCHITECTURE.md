@@ -8,7 +8,7 @@ way it is, and where things live in the code.
 Each connection handles one message at a time:
 
 1. **Read** one MLLP frame.
-2. **Journal** the raw message to the channel's SQLite database. This happens
+2. **Persist** the raw message to the channel's SQLite database. This happens
    before parsing, so even a malformed message is kept.
 3. **Parse** the message and convert it to XML. If the header is readable
    but the rest isn't, the sender gets `AE` and nothing goes to your API. If
@@ -16,9 +16,9 @@ Each connection handles one message at a time:
    no ACK is sent.
 4. **Deliver** the XML to your API, retrying once.
 5. **Choose the ACK.** `AA` means it was delivered. `AE` means it couldn't be
-   parsed or delivered. `AR` means the journal write failed: the message
+   parsed or delivered. `AR` means persisting it failed: the message
    isn't safely stored, so the sender should resend it.
-6. **Write the ACK**, record it in the journal, and go back to step 1.
+6. **Write the ACK**, persist it alongside the message, and go back to step 1.
 
 Connections and channels run in parallel. Within a connection, messages are
 handled in the order they arrive.
@@ -28,7 +28,7 @@ handled in the order they arrive.
 - **Your API is slow.** The sender waits for its ACK. There's no internal
   queue to fill: the MLLP connection is the backpressure.
   `hl7gw_messages_in_flight` rises while this is happening.
-- **Your API is down.** Each message is journaled, tried twice and answered
+- **Your API is down.** Each message is persisted, tried twice and answered
   with `AE`. hl7gw doesn't redeliver it on its own. Either the sender
   resends it or you replay it through the admin API.
 - **Too many senders connect.** Each channel accepts up to `max_connections`
@@ -40,12 +40,12 @@ handled in the order they arrive.
 - **The process crashes or loses power.** Every message is committed to disk
   (SQLite WAL, `synchronous=FULL`) before it's parsed, so nothing a sender
   got an ACK for is lost. A message caught mid-flight gets no ACK, so the
-  sender resends it, and it may then appear in the journal twice.
+  sender resends it, and it may then be persisted twice.
 - **You deploy (SIGTERM or SIGINT).** Listeners stop accepting and idle
   connections close. Messages already in progress finish delivery and get
   their ACK, but a failed delivery isn't retried. A 20-second hard limit
   applies, after which the remaining work is abandoned and the process exits.
-- **The journal grows.** Rows older than `retention` (30 days by default)
+- **The database grows.** Rows older than `retention` (30 days by default)
   are deleted at startup, before the listeners open, and then hourly,
   delivery attempts included. The file doesn't shrink on its own; SQLite
   reuses the space.
@@ -73,7 +73,7 @@ accepting new connections at the limit instead of refusing them.
 **Cost:** throughput per connection is bounded by your API's latency.
 Throughput scales with the number of sender connections, not with buffering.
 
-### Journal first
+### Persist first
 
 The raw message is committed before it's parsed, so malformed messages are
 still kept for inspection and replay. If that write fails, the sender gets
@@ -88,10 +88,10 @@ each delivery attempt, and the ACK).
 
 There's no database server to install, and channels are isolated from each
 other. Readiness is reported per channel (`/readyz` names the failing one),
-and a channel's journal can be moved or archived on its own.
+and a channel's database can be moved or archived on its own.
 
 **Cost:** hl7gw runs on a single node. Running several instances means
-running several independent journals.
+running several independent sets of databases.
 
 ### No message semantics
 
@@ -113,13 +113,6 @@ The config file names token and password files and never holds secrets, so it
 can be committed and reviewed like any other file. A missing or empty secret
 file stops startup, so a misconfiguration can't fail later at runtime.
 
-### What the roadmap changes
-
-The planned queue between the journal and delivery would move the ACK to
-straight after the journal write, and make redelivery hl7gw's job. That
-trades protocol backpressure for buffering, so it reverses the first two
-decisions above. It's a deliberate next step, not a fix.
-
 ## Code map
 
 ```
@@ -135,11 +128,11 @@ internal/source         MLLP listeners: accept loop, connection cap, TLS handsha
                         the per-connection read → handle → ACK loop, shutdown drain
 internal/mllp           MLLP framing
 internal/hl7            parsing, MSH access, XML encoding, ACK construction
-internal/processor      the pipeline: journal → parse/transform → deliver; also replay and dry run
+internal/processor      the pipeline: persist → parse/transform → deliver; also replay and dry run
 internal/delivery       the HTTP client (one retry) and recording of delivery attempts
-internal/store          the per-channel SQLite journal
-internal/retention      the journal retention sweep: once at startup, then hourly
-internal/journal        the journal's record types
+internal/store          per-channel SQLite persistence
+internal/retention      the retention sweep: once at startup, then hourly
+internal/record         what's persisted about a message and its delivery attempts
 internal/api            the admin HTTP API
 internal/metrics        Prometheus collectors
 internal/shutdown       the drain deadline
