@@ -45,6 +45,10 @@ handled in the order they arrive.
   connections close. Messages already in progress finish delivery and get
   their ACK, but a failed delivery isn't retried. A 20-second hard limit
   applies, after which the remaining work is abandoned and the process exits.
+- **The journal grows.** Rows older than `retention` (30 days by default)
+  are deleted at startup, before the listeners open, and then hourly,
+  delivery attempts included. The file doesn't shrink on its own; SQLite
+  reuses the space.
 
 ## Design decisions
 
@@ -134,6 +138,7 @@ internal/hl7            parsing, MSH access, XML encoding, ACK construction
 internal/processor      the pipeline: journal → parse/transform → deliver; also replay and dry run
 internal/delivery       the HTTP client (one retry) and recording of delivery attempts
 internal/store          the per-channel SQLite journal
+internal/retention      the journal retention sweep: once at startup, then hourly
 internal/journal        the journal's record types
 internal/api            the admin HTTP API
 internal/metrics        Prometheus collectors

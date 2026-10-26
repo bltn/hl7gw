@@ -105,6 +105,7 @@ func collect(p *prompter, dir string) config.Config {
 	cfg.Log.Level = config.DefaultLogLevel
 	cfg.Log.Format = config.LogFormatAuto
 	cfg.CertReloadInterval = config.DefaultCertReloadInterval
+	cfg.Retention = config.DefaultRetention
 	return cfg
 }
 

@@ -11,13 +11,17 @@ import (
 	"github.com/bltn/hl7gw/internal/console"
 	"github.com/bltn/hl7gw/internal/metrics"
 	"github.com/bltn/hl7gw/internal/processor"
+	"github.com/bltn/hl7gw/internal/retention"
 	"github.com/bltn/hl7gw/internal/shutdown"
 	"github.com/bltn/hl7gw/internal/source"
 	"github.com/bltn/hl7gw/internal/store"
 	"golang.org/x/sync/errgroup"
 )
 
-const shutdownDeadline = 20 * time.Second
+const (
+	shutdownDeadline  = 20 * time.Second
+	retentionInterval = time.Hour
+)
 
 func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.Writer, term console.Terminal) error {
 	cfg, err := config.Load(configPath)
@@ -35,6 +39,9 @@ func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.W
 		return err
 	}
 	defer store.CloseAll(stores)
+
+	sweeper := retention.New(stores, cfg.Retention, retentionInterval, log, m)
+	sweeper.Sweep(ctx)
 
 	bls, err := source.BindListeners(ctx, cfg, log, m)
 	if err != nil {
@@ -54,6 +61,10 @@ func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.W
 
 	g.Go(func() error {
 		cfg.ReloadTLS(ctx, log, m)
+		return nil
+	})
+	g.Go(func() error {
+		sweeper.Run(ctx)
 		return nil
 	})
 

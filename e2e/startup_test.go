@@ -111,6 +111,31 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 			wantStderr: []string{errorPrefix, "cert_reload_interval must be positive, got -1s"},
 		},
 		{
+			name:       "retention without a unit",
+			body:       `{` + adminOK + `, "retention": "30", "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `retention must be "off" or a whole number of days such as "30d", got "30"`},
+		},
+		{
+			name:       "retention as a number",
+			body:       `{` + adminOK + `, "retention": 30, "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, "cannot unmarshal number into Go struct field Config.retention of type config.Retention"},
+		},
+		{
+			name:       "zero retention",
+			body:       `{` + adminOK + `, "retention": "0d", "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `retention must be "off" or a whole number of days such as "30d", got "0d"`},
+		},
+		{
+			name:       "negative retention",
+			body:       `{` + adminOK + `, "retention": "-1d", "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `retention must be "off" or a whole number of days such as "30d", got "-1d"`},
+		},
+		{
+			name:       "retention in words",
+			body:       `{` + adminOK + `, "retention": "forever", "channels": []}`,
+			wantStderr: []string{errorPrefix, parsingConfigFileSuffix, `retention must be "off" or a whole number of days such as "30d", got "forever"`},
+		},
+		{
 			name:       "negative idle_timeout",
 			body:       `{` + adminOK + `, "channels": [{"name": "bad", "source": {"port": 9999, "idle_timeout": "-5s", ` + tlsOffOK + `}, ` + destinationOK + `}]}`,
 			wantStderr: []string{errorPrefix, "channel bad: source.idle_timeout is required and must be positive, got -5s"},

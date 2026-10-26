@@ -673,13 +673,18 @@ func stopAndReadAll(t *testing.T, gw *harness.Gateway) ([]harness.MessageRow, []
 	if err := gw.Stop(); err != nil {
 		t.Fatalf("gateway did not shut down cleanly: %v", err)
 	}
-	msgs, err := harness.ReadMessages(gw.DBPath(channelName))
+	return readAll(t, gw, channelName)
+}
+
+func readAll(t *testing.T, gw *harness.Gateway, channel string) ([]harness.MessageRow, []harness.DeliveryAttemptRow) {
+	t.Helper()
+	msgs, err := harness.ReadMessages(gw.DBPath(channel))
 	if err != nil {
-		t.Fatalf("read messages: %v", err)
+		t.Fatalf("read %s messages: %v", channel, err)
 	}
-	attempts, err := harness.ReadDeliveryAttempts(gw.DBPath(channelName))
+	attempts, err := harness.ReadDeliveryAttempts(gw.DBPath(channel))
 	if err != nil {
-		t.Fatalf("read delivery attempts: %v", err)
+		t.Fatalf("read %s delivery attempts: %v", channel, err)
 	}
 	return msgs, attempts
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenSetsConnectionPragmas(t *testing.T) {
@@ -53,6 +54,9 @@ func TestReadsFailOnClosedStore(t *testing.T) {
 	}
 	if err := st.Ping(t.Context()); err == nil {
 		t.Error("Ping succeeded on a closed store, want error")
+	}
+	if _, err := st.Prune(t.Context(), time.Now()); err == nil {
+		t.Error("Prune succeeded on a closed store, want error")
 	}
 }
 

@@ -15,7 +15,7 @@ CREATE TABLE messages (
 ) STRICT;
 CREATE TABLE delivery_attempts (
     id INTEGER PRIMARY KEY,
-    message_id INTEGER NOT NULL REFERENCES messages(id),
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     attempted_at INTEGER NOT NULL,
     outcome TEXT NOT NULL CHECK (outcome IN ('SUCCESS', 'FAILED')),
     response_status_code INTEGER,
@@ -26,6 +26,7 @@ CREATE TABLE delivery_attempts (
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 ) STRICT;
 CREATE INDEX delivery_attempts_by_message ON delivery_attempts(message_id);
+CREATE INDEX messages_by_received_at ON messages(received_at);
 CREATE TRIGGER messages_touch_updated_at AFTER UPDATE ON messages FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN

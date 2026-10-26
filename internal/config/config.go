@@ -31,6 +31,9 @@ const (
 	TLSModeOff  = "off"
 	TLSModeMTLS = "mtls"
 
+	retentionOff     = "off"
+	maxRetentionDays = 36500
+
 	AuthNone   = "none"
 	AuthBearer = "bearer"
 	AuthBasic  = "basic"
@@ -217,10 +220,41 @@ func (d DestURL) MarshalText() ([]byte, error) {
 	return []byte(d.String()), nil
 }
 
+type Retention struct {
+	text string
+	days int
+}
+
+var DefaultRetention = Retention{text: "30d", days: 30}
+
+func (r *Retention) UnmarshalText(text []byte) error {
+	s := string(text)
+	if s == retentionOff {
+		*r = Retention{text: s}
+		return nil
+	}
+	n, ok := strings.CutSuffix(s, "d")
+	days, err := strconv.Atoi(n)
+	if !ok || err != nil || days < 1 || days > maxRetentionDays {
+		return fmt.Errorf("retention must be %q or a whole number of days such as \"30d\", got %q", retentionOff, s)
+	}
+	*r = Retention{text: s, days: days}
+	return nil
+}
+
+func (r Retention) MarshalText() ([]byte, error) {
+	return []byte(r.text), nil
+}
+
+func (r Retention) Days() int {
+	return r.days
+}
+
 type Config struct {
 	Admin              Admin     `json:"admin"`
 	DataDir            string    `json:"data_dir"`
 	CertReloadInterval Duration  `json:"cert_reload_interval"`
+	Retention          Retention `json:"retention"`
 	Log                Log       `json:"log"`
 	Channels           []Channel `json:"channels"`
 }
@@ -298,6 +332,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.CertReloadInterval == 0 {
 		cfg.CertReloadInterval = DefaultCertReloadInterval
+	}
+	if cfg.Retention == (Retention{}) {
+		cfg.Retention = DefaultRetention
 	}
 	if cfg.Log.Level == "" {
 		cfg.Log.Level = DefaultLogLevel

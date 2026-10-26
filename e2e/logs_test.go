@@ -32,6 +32,10 @@ const (
 	msgCAReloaded             = "client ca pool reloaded"
 	msgCertReloadFailed       = "server cert reload failed, still serving previous cert"
 	msgCAReloadFailed         = "client ca reload failed, still verifying against previous pool"
+	msgAdminAPIListening      = "admin api listening"
+	msgRetentionSweep         = "retention sweep"
+	msgRetentionSweepFailed   = "retention sweep failed"
+	msgRetentionOff           = "retention off"
 )
 
 var humanListeningLine = regexp.MustCompile(`(?m)^\d{2}:\d{2}:\d{2} INFO  listening channel=`)

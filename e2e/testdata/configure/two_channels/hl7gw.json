@@ -5,6 +5,7 @@
   },
   "data_dir": "/var/lib/hl7gw",
   "cert_reload_interval": "2m",
+  "retention": "30d",
   "log": {
     "level": "info",
     "format": "auto"

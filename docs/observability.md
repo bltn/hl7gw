@@ -28,6 +28,12 @@ start. The optional `log` config block controls the output:
   running the binary by hand is readable and running it under a supervisor or
   through a pipe stays machine-parseable with no configuration.
 
+hl7gw never writes a log file of its own, so log rotation and retention
+belong to whatever collects stdout: journald, Docker's log driver, the
+kubelet, or logrotate on a redirected file. The journal is the exception;
+its retention is the gateway's job (see
+[configuration.md](configuration.md#retention)).
+
 On a terminal, `text` output is coloured and startup prints a short `hl7gw`
 banner before the first record. Set `NO_COLOR` to any value, or `TERM=dumb`,
 to keep the format but drop the colours. The banner is never written when
@@ -57,6 +63,9 @@ The `msg` values below are a stable contract:
 | info | `client ca pool reloaded` | channel, certs |
 | warn | `server cert reload failed, still serving previous cert` | channel, err |
 | warn | `client ca reload failed, still verifying against previous pool` | channel, err |
+| info | `retention sweep` | channel, deleted, cutoff, duration_ms |
+| error | `retention sweep failed` | channel, err |
+| info | `retention off` | |
 | debug | `connection opened` | channel, remote |
 | info | `connection closed` | channel, remote, reason, messages, duration_ms, err (when the reason carries one) |
 | info | `tls client cert accepted` | channel, remote, cn, issuer, serial, expires |
@@ -112,6 +121,7 @@ or the Datadog agent. Label values are lowercase.
 | `hl7gw_tls_handshake_failures_total` | counter | channel |
 | `hl7gw_tls_cert_expiry_timestamp_seconds` | gauge | channel. The NotAfter time of the served server certificate. |
 | `hl7gw_persistence_errors_total` | counter | channel, operation |
+| `hl7gw_messages_pruned_total` | counter | channel |
 | `hl7gw_build_info` | gauge (always 1) | version, commit, go_version |
 
 The standard Go runtime (`go_*`) and process (`process_*`) collectors are

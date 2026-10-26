@@ -16,6 +16,7 @@ type Set struct {
 	connectionsTotal       *prometheus.CounterVec
 	tlsHandshakeFailures   *prometheus.CounterVec
 	persistenceErrorsTotal *prometheus.CounterVec
+	messagesPrunedTotal    *prometheus.CounterVec
 	messagesInFlight       *prometheus.GaugeVec
 	connectionsOpen        *prometheus.GaugeVec
 	acceptPaused           *prometheus.GaugeVec
@@ -32,6 +33,7 @@ type Channel struct {
 	ConnectionsTotal       *prometheus.CounterVec
 	PersistenceErrorsTotal *prometheus.CounterVec
 	TLSHandshakeFailures   prometheus.Counter
+	MessagesPruned         prometheus.Counter
 	MessagesInFlight       prometheus.Gauge
 	ConnectionsOpen        prometheus.Gauge
 	AcceptPaused           prometheus.Gauge
@@ -48,6 +50,7 @@ func New(version, commit string) *Set {
 		connectionsTotal:       counter("hl7gw_connections_total", "MLLP connections closed by reason.", "channel", "close_reason"),
 		tlsHandshakeFailures:   counter("hl7gw_tls_handshake_failures_total", "Failed mTLS handshakes.", "channel"),
 		persistenceErrorsTotal: counter("hl7gw_persistence_errors_total", "Failed journal writes by operation.", "channel", "operation"),
+		messagesPrunedTotal:    counter("hl7gw_messages_pruned_total", "Journal rows deleted by the retention sweep.", "channel"),
 		messagesInFlight:       gauge("hl7gw_messages_in_flight", "Messages read but not yet acknowledged.", "channel"),
 		connectionsOpen:        gauge("hl7gw_connections_open", "Open MLLP connections.", "channel"),
 		acceptPaused:           gauge("hl7gw_accept_paused", "1 while the listener is at its connection limit and not accepting.", "channel"),
@@ -61,7 +64,7 @@ func New(version, commit string) *Set {
 
 	s.registry.MustRegister(
 		s.messagesTotal, s.deliveryAttemptsTotal, s.acksTotal, s.connectionsTotal,
-		s.tlsHandshakeFailures, s.persistenceErrorsTotal, s.messagesInFlight,
+		s.tlsHandshakeFailures, s.persistenceErrorsTotal, s.messagesPrunedTotal, s.messagesInFlight,
 		s.connectionsOpen, s.acceptPaused, s.tlsCertExpiry, s.messageDuration,
 		s.deliveryDuration, buildInfo,
 		collectors.NewGoCollector(),
@@ -79,6 +82,7 @@ func (s *Set) Channel(name string) *Channel {
 		ConnectionsTotal:       s.connectionsTotal.MustCurryWith(labels),
 		PersistenceErrorsTotal: s.persistenceErrorsTotal.MustCurryWith(labels),
 		TLSHandshakeFailures:   s.tlsHandshakeFailures.WithLabelValues(name),
+		MessagesPruned:         s.messagesPrunedTotal.WithLabelValues(name),
 		MessagesInFlight:       s.messagesInFlight.WithLabelValues(name),
 		ConnectionsOpen:        s.connectionsOpen.WithLabelValues(name),
 		AcceptPaused:           s.acceptPaused.WithLabelValues(name),

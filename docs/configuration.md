@@ -8,9 +8,9 @@ hl7gw run -config /etc/hl7gw/hl7gw.json
 
 `hl7gw configure` writes one interactively. It asks for each channel (the
 mutual TLS material only when `source.tls.mode` is `mtls`), the admin port and
-`data_dir`, rejecting invalid answers on the spot. `log.level`, `log.format`
-and `cert_reload_interval` are not asked; they are written with the defaults
-below so they can be edited in the file. The admin API token is generated into
+`data_dir`, rejecting invalid answers on the spot. `log.level`, `log.format`,
+`cert_reload_interval` and `retention` are not asked; they are written with
+the defaults below so they can be edited in the file. The admin API token is generated into
 `admin.token` beside the config file.
 
 Unknown keys are rejected. The gateway refuses to start, with an `error: …`
@@ -29,6 +29,7 @@ resolved against the working directory the gateway runs from.
 | `channels` | | `[]` | The channels, described below. |
 | `data_dir` | | `data` | Directory for the journals. Each channel writes `<data_dir>/<channel>.db`. |
 | `cert_reload_interval` | | `2m` | How often mTLS certificates and client CA files are re-read from disk. |
+| `retention` | | `30d` | How long journal rows are kept: a whole number of days such as `30d`, or `off` to keep everything. See [Retention](#retention). |
 | `log.level` | | `info` | `debug`, `info`, `warn` or `error`. |
 | `log.format` | | `auto` | `json`, `text` for slog's `key=value` form, or `auto` for `text` on a terminal and `json` otherwise. |
 
@@ -86,6 +87,31 @@ This is checked during the handshake, before any MLLP bytes are read. Every
 
 Token and password files are read once at startup; changing one needs a restart.
 
+### Retention
+
+Every message is journaled, so each channel's database grows with traffic.
+`retention` bounds it by age: a message received more than that many days
+ago is deleted, together with its delivery attempts, whatever its ACK or
+delivery outcome was. The journal is operational evidence, not the system of
+record; 30 days covers replay and debugging, and a shorter value keeps less
+PHI on disk.
+
+The sweep runs once at startup, after the journals are opened and before any
+MLLP listener or the admin API binds, so a backlog is cleared before new
+traffic arrives and `/readyz` is not answered until it finishes. It then runs
+every hour. Each sweep logs `retention sweep` per channel and counts the rows
+it removed in `hl7gw_messages_pruned_total`. A sweep that fails (a locked or
+damaged journal) is logged as `retention sweep failed` and the gateway
+carries on; the next hourly sweep retries.
+
+Deleting rows does not shrink the database file: SQLite reuses the freed
+pages for new messages. Run `VACUUM` against the file offline if you need the
+disk space back. Replaying a pruned message through the admin API answers
+404.
+
+`off` keeps every message forever. The gateway logs `retention off` at
+startup, and disk usage is yours to manage.
+
 ## Fixed limits
 
 These aren't configurable yet:
@@ -98,12 +124,15 @@ These aren't configurable yet:
 | Each HTTP delivery attempt | 10 s |
 | Delivery attempts per message | 2, with 500 ms between them |
 | Graceful shutdown deadline | 20 s |
+| Retention sweep interval | 1 h |
+| Messages deleted per retention transaction | 1000 |
 
 ## Example
 
 ```json
 {
   "data_dir": "/var/lib/hl7gw",
+  "retention": "30d",
   "log": { "level": "info", "format": "json" },
   "admin": { "port": 8081, "token_file": "/etc/hl7gw/admin.token" },
   "channels": [
