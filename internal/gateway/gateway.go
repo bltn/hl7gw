@@ -31,7 +31,7 @@ func Run(ctx context.Context, configPath string, openapiSpec []byte, stdout io.W
 	term.Banner(stdout)
 	log := cfg.Log.Logger(stdout, term)
 	version, commit := buildVersion()
-	log.Info("starting", "version", version, "commit", commit)
+	log.Info("starting", "version", version, "commit", commit, "config", cfg.Path)
 	m := metrics.New(version, commit)
 
 	stores, err := store.OpenAll(ctx, cfg)

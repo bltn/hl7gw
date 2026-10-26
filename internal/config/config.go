@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -25,6 +27,7 @@ import (
 const (
 	DefaultMaxTCPConnections  = 64
 	DefaultDataDir            = "data"
+	DefaultPath               = "hl7gw.json"
 	DefaultCertReloadInterval = Duration(2 * time.Minute)
 	maxPort                   = 65535
 
@@ -43,6 +46,8 @@ const (
 	LogFormatJSON   = "json"
 	LogFormatText   = "text"
 )
+
+var errNoDefaultConfig = errors.New("no config file: looked for ./" + DefaultPath + " in the current directory, pass -config <path> to use another")
 
 var (
 	LogLevels  = []string{"debug", "info", "warn", "error"}
@@ -251,6 +256,7 @@ func (r Retention) Days() int {
 }
 
 type Config struct {
+	Path               string    `json:"-"`
 	Admin              Admin     `json:"admin"`
 	DataDir            string    `json:"data_dir"`
 	CertReloadInterval Duration  `json:"cert_reload_interval"`
@@ -297,10 +303,15 @@ func oneOf(key string, options []string, got string) error {
 }
 
 func Load(path string) (Config, error) {
+	path, err := resolvePath(path)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg, err := loadAndDecode(path)
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.Path = path
 	applyDefaults(&cfg)
 
 	err = validate(cfg)
@@ -456,6 +467,16 @@ func validateTLS(t *TLS) error {
 		return errors.New("source.tls.min_version is required")
 	}
 	return nil
+}
+
+func resolvePath(path string) (string, error) {
+	if path == "" {
+		path = DefaultPath
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			return "", errNoDefaultConfig
+		}
+	}
+	return filepath.Abs(path)
 }
 
 func loadAndDecode(path string) (Config, error) {

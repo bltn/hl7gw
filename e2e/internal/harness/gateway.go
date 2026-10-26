@@ -135,8 +135,7 @@ func StartGatewayWithLog(t *testing.T, log Log, channels ...Channel) (*Gateway, 
 	return launch(t, gw)
 }
 
-func StartGatewayFromConfig(t *testing.T, cfgPath string, apiPort int, channelPorts map[string]int) (*Gateway, error) {
-	workDir := filepath.Dir(cfgPath)
+func StartGatewayFromConfig(t *testing.T, workDir, cfgPath string, apiPort int, channelPorts map[string]int) (*Gateway, error) {
 	return launch(t, &Gateway{
 		cfgPath:      cfgPath,
 		workDir:      workDir,
@@ -159,7 +158,11 @@ func (gw *Gateway) Restart(t *testing.T) (*Gateway, error) {
 }
 
 func launch(t *testing.T, gw *Gateway) (*Gateway, error) {
-	if err := gw.spawn(nil, "run", "-config", gw.cfgPath); err != nil {
+	args := []string{"run"}
+	if gw.cfgPath != "" {
+		args = append(args, "-config", gw.cfgPath)
+	}
+	if err := gw.spawn(nil, args...); err != nil {
 		return nil, err
 	}
 	t.Cleanup(func() { _ = gw.Stop() })

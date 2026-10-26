@@ -75,7 +75,11 @@ func Run(path string, in io.Reader, out io.Writer, term console.Terminal) error 
 			p.printf("    %s\n", file)
 		}
 	}
-	p.printf("  ./hl7gw run -config %s\n", path)
+	if filepath.Clean(path) == config.DefaultPath {
+		p.printf("  ./hl7gw run\n")
+	} else {
+		p.printf("  ./hl7gw run -config %s\n", path)
+	}
 	return nil
 }
 

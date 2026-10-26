@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	msgStarting               = "starting"
 	msgListening              = "listening"
 	msgConnectionOpened       = "connection opened"
 	msgConnectionClosed       = "connection closed"

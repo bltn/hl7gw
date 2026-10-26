@@ -47,7 +47,7 @@ func startRetentionGateway(t *testing.T, retention string, channels ...string) *
 		t.Fatalf("write config: %v", err)
 	}
 
-	gw, err := harness.StartGatewayFromConfig(t, cfgPath, ports[0], channelPorts)
+	gw, err := harness.StartGatewayFromConfig(t, dir, cfgPath, ports[0], channelPorts)
 	if err != nil {
 		t.Fatalf("start gateway: %v", err)
 	}

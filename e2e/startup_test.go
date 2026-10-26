@@ -329,6 +329,25 @@ func TestExitsOnInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestRunWithoutConfigFlagNeedsDefaultFile(t *testing.T) {
+	t.Parallel()
+	res, err := harness.RunUntilExit(t.TempDir(), "", "run")
+	if err != nil {
+		t.Fatalf("run gateway: %v", err)
+	}
+	if res.Code != 1 {
+		t.Errorf("exit code = %d, want 1", res.Code)
+	}
+	for _, want := range []string{errorPrefix, "./hl7gw.json", "-config"} {
+		if !strings.Contains(res.Stderr, want) {
+			t.Errorf("stderr missing %q\n--- stderr ---\n%s", want, res.Stderr)
+		}
+	}
+	if res.Stdout != "" {
+		t.Errorf("unexpected stdout\n--- stdout ---\n%s", res.Stdout)
+	}
+}
+
 func TestExitsWhenTokenFileUnusable(t *testing.T) {
 	t.Parallel()
 	channel := func(auth string) string {

@@ -41,7 +41,7 @@ to keep the format but drop the colours. The banner is never written when
 stdout is not a terminal, and it is not a log record.
 
 ```
-15:04:05 INFO  starting version=v0.3.0 commit=1a2b3c
+15:04:05 INFO  starting version=v0.3.0 commit=1a2b3c config=/etc/hl7gw/hl7gw.json
 15:04:05 INFO  listening channel=sft-adt-feed addr=:3000 tls=mtls
 15:04:09 WARN  tls handshake failed channel=sft-adt-feed remote=10.0.0.5:4242 err="remote error: tls: bad certificate"
 ```
@@ -55,7 +55,7 @@ The `msg` values below are a stable contract:
 
 | level | msg | attrs |
 |---|---|---|
-| info | `starting` | version, commit |
+| info | `starting` | version, commit, config |
 | info | `listening` | channel, addr, tls, serial and expires (mTLS only) |
 | info | `admin api listening` | addr |
 | info | `stopped accepting connections` | channel |

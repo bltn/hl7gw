@@ -30,8 +30,9 @@ curl -fsSL "https://github.com/bltn/hl7gw/releases/latest/download/hl7gw_$(uname
 ./hl7gw configure
 
 # 3. Put your API's token in the file the wizard names, then run.
+#    run picks up hl7gw.json from the current directory (-config for another path).
 #    Admin API reference: http://localhost:8081/docs
-./hl7gw run -config hl7gw.json
+./hl7gw run
 ```
 
 ## How it works

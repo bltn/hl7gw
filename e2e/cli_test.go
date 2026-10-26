@@ -28,7 +28,7 @@ func TestUsage(t *testing.T) {
 			if res.Code != 2 {
 				t.Errorf("exit code = %d, want 2", res.Code)
 			}
-			for _, want := range []string{"usage:", "run -config", "configure"} {
+			for _, want := range []string{"usage:", "run [-config <path>]", "configure"} {
 				if !strings.Contains(res.Stderr, want) {
 					t.Errorf("stderr missing %q\n--- stderr ---\n%s", want, res.Stderr)
 				}

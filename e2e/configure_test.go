@@ -53,7 +53,7 @@ const (
 	configFileName      = "hl7gw.json"
 	adminTokenFileName  = "admin.token"
 	nextStepsHead       = "Next steps:\n  Admin API token: admin.token (generated)\n"
-	nextStepsRun        = "  ./hl7gw run -config hl7gw.json\n"
+	nextStepsRun        = "  ./hl7gw run\n"
 	nextStepsFiles      = "  Put each destination's bearer token or password in its file:\n"
 )
 
@@ -156,6 +156,20 @@ func TestConfigureNoneAuthNeedsNoSecretFile(t *testing.T) {
 	}
 	if want := nextStepsHead + nextStepsRun; !strings.HasSuffix(res.Stdout, want) {
 		t.Errorf("next steps should list no secret files\n--- stdout ---\n%s", res.Stdout)
+	}
+}
+
+func TestConfigureNamesNonDefaultOutputInNextSteps(t *testing.T) {
+	t.Parallel()
+	res, err := harness.RunUntilExit(t.TempDir(), noneAuthSession, subcommandConfigure, flagOutput, "custom.json")
+	if err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+	if res.Code != 0 {
+		t.Fatalf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
+	}
+	if want := nextStepsHead + "  ./hl7gw run -config custom.json\n"; !strings.HasSuffix(res.Stdout, want) {
+		t.Errorf("next steps should pass the custom path to run\n--- stdout ---\n%s", res.Stdout)
 	}
 }
 
@@ -339,9 +353,12 @@ func TestConfiguredGatewayBoots(t *testing.T) {
 		t.Fatalf("exit code = %d\n--- stdout ---\n%s\n--- stderr ---\n%s", res.Code, res.Stdout, res.Stderr)
 	}
 
-	gw, err := harness.StartGatewayFromConfig(t, filepath.Join(dir, configFileName), apiPort, map[string]int{channelName: adtPort, secureChannel: securePort, openChannel: openPort})
+	gw, err := harness.StartGatewayFromConfig(t, dir, "", apiPort, map[string]int{channelName: adtPort, secureChannel: securePort, openChannel: openPort})
 	if err != nil {
 		t.Fatalf("start gateway from the written config: %v", err)
+	}
+	if n := gw.CountLogs(withAttr(isMsg(msgStarting), "config", filepath.Join(dir, configFileName))); n != 1 {
+		t.Errorf("starting records naming %s = %d, want 1\n--- logs ---\n%v", filepath.Join(dir, configFileName), n, gw.Logs())
 	}
 	for _, channel := range []string{channelName, openChannel} {
 		ack, err := gw.SendAndAck(channel, adtA01Message)

@@ -1,8 +1,10 @@
 # Configuration
 
-hl7gw reads a single JSON file given to `run -config`:
+hl7gw reads a single JSON file: `hl7gw.json` in the current directory, or the
+path given to `run -config`:
 
 ```sh
+hl7gw run
 hl7gw run -config /etc/hl7gw/hl7gw.json
 ```
 

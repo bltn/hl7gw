@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/bltn/hl7gw/internal/config"
 	"github.com/bltn/hl7gw/internal/configure"
 	"github.com/bltn/hl7gw/internal/console"
 	"github.com/bltn/hl7gw/internal/gateway"
@@ -23,7 +24,7 @@ func main() {
 		err = runGateway(os.Args[2:])
 	case "configure":
 		fs := flag.NewFlagSet("configure", flag.ExitOnError)
-		output := fs.String("output", "hl7gw.json", "where to write the config file")
+		output := fs.String("output", config.DefaultPath, "where to write the config file")
 		_ = fs.Parse(os.Args[2:])
 		err = configure.Run(*output, os.Stdin, os.Stdout, console.Detect(os.Stdout))
 	default:
@@ -37,7 +38,7 @@ func main() {
 
 func runGateway(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	configPath := fs.String("config", "", "path to config file")
+	configPath := fs.String("config", "", "path to config file (default ./"+config.DefaultPath+")")
 	_ = fs.Parse(args)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -46,6 +47,6 @@ func runGateway(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, "usage:\n  hl7gw run -config <path>\n  hl7gw configure [-output <path>]\n")
+	fmt.Fprint(os.Stderr, "usage:\n  hl7gw run [-config <path>]\n  hl7gw configure [-output <path>]\n")
 	os.Exit(2)
 }
