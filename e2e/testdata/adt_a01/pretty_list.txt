@@ -1,0 +1,3 @@
+ID  RECEIVED                  TYPE     CONTROL ID  TRANSFORM  ATTEMPTS  DELIVERY  STATUS
+2   <TS>  ADT^A01  MSG00002    -          1         SUCCESS   200
+1   <TS>  ADT^A01  MSG00001    -          1         SUCCESS   200

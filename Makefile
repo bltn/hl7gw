@@ -1,5 +1,4 @@
 GOLANGCI_LINT ?= go tool golangci-lint
-VACUUM ?= go tool vacuum
 FUZZTIME ?= 10s
 CONFIG ?= hl7gw.json
 FUZZ_PKGS = ./internal/hl7 ./internal/mllp
@@ -71,7 +70,6 @@ tidy:
 .PHONY: lint
 lint:
 	$(GOLANGCI_LINT) run --build-tags e2e
-	$(VACUUM) lint -r vacuum-ruleset.yaml openapi.yaml
 
 .PHONY: check
 check: lint run_all_tests_with_coverage fuzz

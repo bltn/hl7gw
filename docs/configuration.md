@@ -1,35 +1,42 @@
 # Configuration
 
 hl7gw reads a single JSON file: `hl7gw.json` in the current directory, or the
-path given to `run -config`:
+path given to `-config`. `run` and the operator subcommands (`messages`,
+`replay`, `process`) all read the same file:
 
 ```sh
 hl7gw run
 hl7gw run -config /etc/hl7gw/hl7gw.json
+hl7gw messages -config /etc/hl7gw/hl7gw.json adt
 ```
 
 `hl7gw configure` writes one interactively. It asks for each channel (the
-mutual TLS material only when `source.tls.mode` is `mtls`), the admin port and
-`data_dir`, rejecting invalid answers on the spot. `log.level`, `log.format`,
-`cert_reload_interval` and `retention` are not asked; they are written with
-the defaults below so they can be edited in the file. The admin API token is generated into
-`admin.token` beside the config file.
+mutual TLS material only when `source.tls.mode` is `mtls`), the metrics port
+and `data_dir`, rejecting invalid answers on the spot. `log.level`,
+`log.format`, `cert_reload_interval` and `retention` are not asked; they are
+written with the defaults below so they can be edited in the file.
 
 Unknown keys are rejected. The gateway refuses to start, with an `error: …`
 line on stderr, if the file is invalid, if a token or password file is missing
 or empty, or if TLS material can't be loaded.
 
-Durations are Go duration strings: `30s`, `1m`, `2h`, `1h30m`. Paths are
-resolved against the working directory the gateway runs from.
+Durations are Go duration strings: `30s`, `1m`, `2h`, `1h30m`.
+
+Relative paths (`data_dir`, `socket`, `token_file`, `password_file`,
+`cert_file`, `key_file`, `client_ca_file`) are resolved against the directory
+that holds the config file, not the working directory of the process. A config
+file and the files it names can be moved as a unit, and `run` and the operator
+subcommands agree on where everything is no matter which directory each is
+started from. Absolute paths are used as given.
 
 ## Top level
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `admin.port` | yes | | Port (1–65535) for the admin API, metrics and probes. Must not clash with a channel port. |
-| `admin.token_file` | yes | | File holding the admin API bearer token. Surrounding whitespace is trimmed. |
+| `metrics.port` | yes | | Port (1–65535) for Prometheus metrics and the health probes. Must not clash with a channel port. |
 | `channels` | | `[]` | The channels, described below. |
 | `data_dir` | | `data` | Directory for the channel databases. Each channel writes `<data_dir>/<channel>.db`. |
+| `socket` | | `<data_dir>/hl7gw.sock` | Unix socket the operator subcommands connect to. Derived from `data_dir` when omitted; `configure` leaves it out. |
 | `cert_reload_interval` | | `2m` | How often mTLS certificates and client CA files are re-read from disk. |
 | `retention` | | `30d` | How long persisted messages are kept: a whole number of days such as `30d`, or `off` to keep everything. See [Retention](#retention). |
 | `log.level` | | `info` | `debug`, `info`, `warn` or `error`. |
@@ -39,7 +46,7 @@ resolved against the working directory the gateway runs from.
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `name` | yes | | Letters, digits, `_` and `-`. Unique. Used in the database file name, metrics labels and admin API calls. |
+| `name` | yes | | Letters, digits, `_` and `-`. Unique. Used in the database file name, metrics labels and the subcommands' `<channel>` argument. |
 | `source.port` | yes | | The MLLP port (1–65535). Unique across channels. |
 | `source.idle_timeout` | yes | | Close a connection that hasn't started a new message within this time. |
 | `source.max_connections` | | `64` | Concurrent connections. At the limit, the listener pauses accepting new ones. |
@@ -99,7 +106,7 @@ record; 30 days covers replay and debugging, and a shorter value keeps less
 PHI on disk.
 
 The sweep runs once at startup, after the channel databases are opened and
-before any MLLP listener or the admin API binds, so a backlog is cleared
+before any MLLP listener or the metrics port binds, so a backlog is cleared
 before new traffic arrives and `/readyz` is not answered until it finishes. It then runs
 every hour. Each sweep logs `retention sweep` per channel and counts the rows
 it removed in `hl7gw_messages_pruned_total`. A sweep that fails (a locked or
@@ -108,8 +115,8 @@ carries on; the next hourly sweep retries.
 
 Deleting rows does not shrink the database file: SQLite reuses the freed
 pages for new messages. Run `VACUUM` against the file offline if you need the
-disk space back. Replaying a pruned message through the admin API answers
-404.
+disk space back. `hl7gw replay` on a pruned message reports
+`no message with id …`.
 
 `off` keeps every message forever. The gateway logs `retention off` at
 startup, and disk usage is yours to manage.
@@ -126,6 +133,7 @@ These aren't configurable:
 | Each HTTP delivery attempt | 10 s |
 | Delivery attempts per message | 2, with 500 ms between them |
 | Graceful shutdown deadline | 20 s |
+| Message size accepted by `process` | 16 MiB |
 | Retention sweep interval | 1 h |
 | Messages deleted per retention transaction | 1000 |
 
@@ -136,7 +144,7 @@ These aren't configurable:
   "data_dir": "/var/lib/hl7gw",
   "retention": "30d",
   "log": { "level": "info", "format": "json" },
-  "admin": { "port": 8081, "token_file": "/etc/hl7gw/admin.token" },
+  "metrics": { "port": 8081 },
   "channels": [
     {
       "name": "adt",

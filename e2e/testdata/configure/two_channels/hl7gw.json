@@ -1,7 +1,6 @@
 {
-  "admin": {
-    "port": 9000,
-    "token_file": "admin.token"
+  "metrics": {
+    "port": 9000
   },
   "data_dir": "/var/lib/hl7gw",
   "cert_reload_interval": "2m",
@@ -16,7 +15,7 @@
       "source": {
         "max_connections": 10,
         "port": 2575,
-        "idle_timeout": "5m",
+        "idle_timeout": "2h",
         "tls": {
           "mode": "off"
         }

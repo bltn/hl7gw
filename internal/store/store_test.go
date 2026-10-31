@@ -49,7 +49,7 @@ func TestReadsFailOnClosedStore(t *testing.T) {
 	if _, err := st.GetMessage(t.Context(), 1); err == nil {
 		t.Error("GetMessage succeeded on a closed store, want error")
 	}
-	if _, err := st.ListMessages(t.Context(), 1, 50); err == nil {
+	if _, err := st.ListMessages(t.Context(), 0, 50); err == nil {
 		t.Error("ListMessages succeeded on a closed store, want error")
 	}
 	if err := st.Ping(t.Context()); err == nil {
@@ -212,4 +212,35 @@ func hasTable(t *testing.T, db *sql.DB, name string) bool {
 		t.Fatalf("checking for table %s: %v", name, err)
 	}
 	return n == 1
+}
+
+func TestListMessagesQueryUsesPrimaryKey(t *testing.T) {
+	t.Parallel()
+	st, err := Open(t.Context(), filepath.Join(t.TempDir(), "ch.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	rows, err := st.db.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+listMessagesQuery, 1000, 50)
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan plan row: %v", err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("plan rows: %v", err)
+	}
+	joined := strings.Join(plan, "; ")
+	if !strings.Contains(joined, "SEARCH messages USING INTEGER PRIMARY KEY") || strings.Contains(joined, "SCAN") {
+		t.Errorf("query plan = %q, want a primary-key SEARCH and no SCAN", joined)
+	}
 }

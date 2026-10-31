@@ -28,6 +28,7 @@ const (
 	DefaultMaxTCPConnections  = 64
 	DefaultDataDir            = "data"
 	DefaultPath               = "hl7gw.json"
+	SocketName                = "hl7gw.sock"
 	DefaultCertReloadInterval = Duration(2 * time.Minute)
 	maxPort                   = 65535
 
@@ -95,14 +96,8 @@ func (l Log) Logger(w io.Writer, term console.Terminal) *slog.Logger {
 	return slog.New(term.Handler(w, level))
 }
 
-type Admin struct {
-	Port      int    `json:"port"`
-	TokenFile string `json:"token_file"`
-	token     string
-}
-
-func (a *Admin) Token() string {
-	return a.token
+type Metrics struct {
+	Port int `json:"port"`
 }
 
 type Auth struct {
@@ -257,8 +252,9 @@ func (r Retention) Days() int {
 
 type Config struct {
 	Path               string    `json:"-"`
-	Admin              Admin     `json:"admin"`
+	Metrics            Metrics   `json:"metrics"`
 	DataDir            string    `json:"data_dir"`
+	Socket             string    `json:"socket,omitempty"`
 	CertReloadInterval Duration  `json:"cert_reload_interval"`
 	Retention          Retention `json:"retention"`
 	Log                Log       `json:"log"`
@@ -302,7 +298,7 @@ func oneOf(key string, options []string, got string) error {
 	return fmt.Errorf("%s must be %s or %s, got %q", key, strings.Join(quoted[:len(quoted)-1], ", "), quoted[len(quoted)-1], got)
 }
 
-func Load(path string) (Config, error) {
+func Read(path string) (Config, error) {
 	path, err := resolvePath(path)
 	if err != nil {
 		return Config{}, err
@@ -313,18 +309,18 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Path = path
 	applyDefaults(&cfg)
+	resolvePaths(&cfg)
+	if err := validate(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
 
-	err = validate(cfg)
+func Load(path string) (Config, error) {
+	cfg, err := Read(path)
 	if err != nil {
 		return Config{}, err
 	}
-
-	adminToken, err := readSecret("token", cfg.Admin.TokenFile)
-	if err != nil {
-		return Config{}, fmt.Errorf("admin: %w", err)
-	}
-	cfg.Admin.token = adminToken
-
 	for _, ch := range cfg.Channels {
 		if err := ch.Source.TLS.load(); err != nil {
 			return Config{}, fmt.Errorf("channel %s: %w", ch.Name, err)
@@ -340,6 +336,9 @@ func Load(path string) (Config, error) {
 func applyDefaults(cfg *Config) {
 	if cfg.DataDir == "" {
 		cfg.DataDir = DefaultDataDir
+	}
+	if cfg.Socket == "" {
+		cfg.Socket = filepath.Join(cfg.DataDir, SocketName)
 	}
 	if cfg.CertReloadInterval == 0 {
 		cfg.CertReloadInterval = DefaultCertReloadInterval
@@ -360,12 +359,33 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
-func validate(cfg Config) error {
-	if err := ValidatePort(cfg.Admin.Port); err != nil {
-		return fmt.Errorf("admin.port %w", err)
+func resolvePaths(cfg *Config) {
+	dir := filepath.Dir(cfg.Path)
+	cfg.DataDir = rel(dir, cfg.DataDir)
+	cfg.Socket = rel(dir, cfg.Socket)
+	for _, ch := range cfg.Channels {
+		if a := ch.Destination.Auth; a != nil {
+			a.TokenFile = rel(dir, a.TokenFile)
+			a.PasswordFile = rel(dir, a.PasswordFile)
+		}
+		if t := ch.Source.TLS; t != nil {
+			t.CertFile = rel(dir, t.CertFile)
+			t.KeyFile = rel(dir, t.KeyFile)
+			t.ClientCAFile = rel(dir, t.ClientCAFile)
+		}
 	}
-	if cfg.Admin.TokenFile == "" {
-		return errors.New("admin.token_file is required and must be non-empty")
+}
+
+func rel(dir, path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(dir, path)
+}
+
+func validate(cfg Config) error {
+	if err := ValidatePort(cfg.Metrics.Port); err != nil {
+		return fmt.Errorf("metrics.port %w", err)
 	}
 	if cfg.CertReloadInterval < 0 {
 		return fmt.Errorf("cert_reload_interval must be positive, got %s", cfg.CertReloadInterval)
@@ -390,8 +410,8 @@ func validate(cfg Config) error {
 		if err := ValidatePort(ch.Source.Port); err != nil {
 			return fmt.Errorf("channel %s: source.port %w", ch.Name, err)
 		}
-		if ch.Source.Port == cfg.Admin.Port {
-			return fmt.Errorf("channel %s: source.port %d collides with admin.port", ch.Name, ch.Source.Port)
+		if ch.Source.Port == cfg.Metrics.Port {
+			return fmt.Errorf("channel %s: source.port %d collides with metrics.port", ch.Name, ch.Source.Port)
 		}
 		if ports[ch.Source.Port] {
 			return fmt.Errorf("channel %s: duplicate source.port %d", ch.Name, ch.Source.Port)

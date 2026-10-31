@@ -1,0 +1,15 @@
+message 1  received <TS>
+
+--- raw ---
+MSH|^~\&|SENDAPP|SENDFAC|RECVAPP|RECVFAC|<TS>||ADT^A01|<CID>|P|2.5
+PID
+
+--- transform error ---
+COULD_NOT_PARSE_HL7
+
+--- ack  send SUCCESS ---
+MSH|^~\&|RECVAPP|RECVFAC|SENDAPP|SENDFAC|<TS>||ACK^A01^ACK|<CID>|P|2.5
+MSA|AE|MSG00004
+
+--- attempts ---
+(none)

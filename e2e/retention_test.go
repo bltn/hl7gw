@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	retentionDefault    = ""
-	retentionOff        = `"retention": "off", `
-	retentionSevenDays  = `"retention": "7d", `
-	retentionAdminToken = "e2e-retention-admin-token" //nolint:gosec // G101 -- placeholder token for a throwaway test process
-	retentionAuth       = "Bearer " + retentionAdminToken
+	retentionDefault   = ""
+	retentionOff       = `"retention": "off", `
+	retentionSevenDays = `"retention": "7d", `
+	alphaChannel       = "alpha"
+	betaChannel        = "beta"
 )
 
 func startRetentionGateway(t *testing.T, retention string, channels ...string) *harness.Gateway {
@@ -28,11 +28,9 @@ func startRetentionGateway(t *testing.T, retention string, channels ...string) *
 	if err != nil {
 		t.Fatalf("find free ports: %v", err)
 	}
-	dir := t.TempDir()
-	for name, token := range map[string]string{"admin.token": retentionAdminToken, "channel.token": "e2e-channel-token"} { //nolint:gosec // G101 -- placeholder tokens for a throwaway test process
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(token+"\n"), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
+	dir := shortDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "channel.token"), []byte("e2e-channel-token\n"), 0o600); err != nil {
+		t.Fatalf("write channel.token: %v", err)
 	}
 
 	channelPorts := make(map[string]int, len(channels))
@@ -41,7 +39,7 @@ func startRetentionGateway(t *testing.T, retention string, channels ...string) *
 		channelPorts[name] = ports[i+1]
 		chans = append(chans, fmt.Sprintf(`{"name": %q, "source": {"port": %d, "idle_timeout": "24h", `+tlsOffOK+`}, `+destinationOK+`}`, name, ports[i+1]))
 	}
-	cfg := fmt.Sprintf(`{"admin": {"port": %d, "token_file": "admin.token"}, %s"channels": [%s]}`, ports[0], retention, strings.Join(chans, ", "))
+	cfg := fmt.Sprintf(`{"metrics": {"port": %d}, %s"channels": [%s]}`, ports[0], retention, strings.Join(chans, ", "))
 	cfgPath := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -82,16 +80,18 @@ func firstLog(logs []harness.LogRecord, pred logPred) int {
 	return -1
 }
 
-func expectMessageStatus(t *testing.T, gw *harness.Gateway, channel string, id int64, want int) {
+func expectMessage(t *testing.T, gw *harness.Gateway, channel string, id int64, want bool) {
 	t.Helper()
-	path := fmt.Sprintf("/messages/%d?channel=%s", id, channel)
-	resp, err := gw.APIGet(path, retentionAuth)
+	rows, err := harness.ReadMessages(gw.DBPath(channel))
 	if err != nil {
-		t.Fatalf("get %s: %v", path, err)
+		t.Fatalf("reading %s messages: %v", channel, err)
 	}
-	if resp.Status != want || resp.ReqSpecErr != nil || resp.RespSpecErr != nil {
-		t.Errorf("get %s: status = %d, reqSpecErr = %v, respSpecErr = %v; want %d and spec-clean; body %s",
-			path, resp.Status, resp.ReqSpecErr, resp.RespSpecErr, want, resp.Body)
+	found := false
+	for _, r := range rows {
+		found = found || r.ID == id
+	}
+	if found != want {
+		t.Errorf("channel %s message %d present = %v, want %v; rows = %+v", channel, id, found, want, rows)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestRetentionPrunesExpiredMessagesAtStartup(t *testing.T) {
 
 	logs := gw.Logs()
 	listening := firstLog(logs, isMsg(msgListening))
-	adminListening := firstLog(logs, isMsg(msgAdminAPIListening))
+	metricsListening := firstLog(logs, isMsg(msgMetricsListening))
 	for _, ch := range channels {
 		sweep := firstLog(logs, isMsgOn(msgRetentionSweep, ch))
 		if sweep < 0 {
@@ -125,13 +125,13 @@ func TestRetentionPrunesExpiredMessagesAtStartup(t *testing.T) {
 		if _, err := time.Parse(time.RFC3339, logs[sweep].Attr("cutoff")); err != nil {
 			t.Errorf("channel %s: cutoff %q is not RFC 3339: %v", ch, logs[sweep].Attr("cutoff"), err)
 		}
-		if sweep > listening || sweep > adminListening {
-			t.Errorf("channel %s: retention sweep logged at %d, after listening (%d) or admin api listening (%d)", ch, sweep, listening, adminListening)
+		if sweep > listening || sweep > metricsListening {
+			t.Errorf("channel %s: retention sweep logged at %d, after listening (%d) or metrics listening (%d)", ch, sweep, listening, metricsListening)
 		}
 	}
 
-	expectMessageStatus(t, gw, alphaChannel, 1, http.StatusNotFound)
-	expectMessageStatus(t, gw, alphaChannel, 2, http.StatusOK)
+	expectMessage(t, gw, alphaChannel, 1, false)
+	expectMessage(t, gw, alphaChannel, 2, true)
 	if body, ok := gw.WaitForMetricLine(`hl7gw_messages_pruned_total{channel="alpha"} 1`, 5*time.Second); !ok {
 		t.Errorf("metrics missing the pruned counter\n--- body ---\n%s", body)
 	}
@@ -167,7 +167,7 @@ func TestRetentionOffKeepsEverything(t *testing.T) {
 	if n := gw.CountLogs(isMsg(msgRetentionSweep)); n != 0 {
 		t.Errorf("%q records = %d, want 0", msgRetentionSweep, n)
 	}
-	expectMessageStatus(t, gw, channelName, 1, http.StatusOK)
+	expectMessage(t, gw, channelName, 1, true)
 	if body, ok := gw.WaitForMetricLine(`hl7gw_messages_pruned_total{channel="e2e"} 0`, 5*time.Second); !ok {
 		t.Errorf("metrics missing the zero pruned counter\n--- body ---\n%s", body)
 	}
@@ -248,7 +248,7 @@ func TestRetentionSweepFailureKeepsGatewayUp(t *testing.T) {
 	if n := gw.CountLogs(isMsgOn(msgRetentionSweep, betaChannel)); n != 1 {
 		t.Errorf("%q records for %s = %d, want 1", msgRetentionSweep, betaChannel, n)
 	}
-	resp, err := gw.APIGet(healthzPath, "")
+	resp, err := gw.HTTPDo(http.MethodGet, healthzPath)
 	if err != nil {
 		t.Fatalf("get %s: %v", healthzPath, err)
 	}

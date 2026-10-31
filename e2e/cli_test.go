@@ -17,7 +17,7 @@ func TestUsage(t *testing.T) {
 	}{
 		{"no arguments", nil},
 		{"unknown subcommand", []string{"bogus"}},
-		{"legacy flag form", []string{"-config", "x"}},
+		{"legacy flag form", []string{flagConfig, "x"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestUsage(t *testing.T) {
 			if res.Code != 2 {
 				t.Errorf("exit code = %d, want 2", res.Code)
 			}
-			for _, want := range []string{"usage:", "run [-config <path>]", "configure"} {
+			for _, want := range []string{usagePrefix, "hl7gw run", "hl7gw configure", "hl7gw messages", "hl7gw replay", "hl7gw process"} {
 				if !strings.Contains(res.Stderr, want) {
 					t.Errorf("stderr missing %q\n--- stderr ---\n%s", want, res.Stderr)
 				}

@@ -1,6 +1,6 @@
 adt
 
-5m
+2h
 10
 
 https://api.example.com/hl7

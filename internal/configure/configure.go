@@ -2,13 +2,10 @@ package configure
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,12 +22,10 @@ var (
 )
 
 const (
-	defaultAdminPort   = 8081
+	defaultMetricsPort = 8081
 	defaultChannelPort = 2575
 	defaultIdleTimeout = config.Duration(time.Minute)
 	defaultMinVersion  = "1.2"
-	adminTokenName     = "admin.token"
-	adminTokenBytes    = 32
 )
 
 var tlsModes = []string{config.TLSModeOff, "mTLS"}
@@ -55,20 +50,12 @@ func Run(path string, in io.Reader, out io.Writer, term console.Terminal) error 
 		return p.err
 	}
 
-	created, err := writeAdminToken(cfg.Admin.TokenFile)
-	if err != nil {
-		return err
-	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 
-	status := "generated"
-	if !created {
-		status = "already existed, left unchanged"
-	}
-	p.printf("\n%s\n\nNext steps:\n  Admin API token: %s (%s)\n", term.Success("Wrote "+path), cfg.Admin.TokenFile, status)
+	p.printf("\n%s\n\nNext steps:\n", term.Success("Wrote "+path))
 	if files := secretFiles(cfg); len(files) > 0 {
 		p.printf("  Put each destination's bearer token or password in its file:\n")
 		for _, file := range files {
@@ -98,9 +85,8 @@ func collect(p *prompter, dir string) config.Config {
 		done()
 	}
 
-	done := p.section("Admin")
-	cfg.Admin.Port = p.askInt("Port", defaultAdminPort, freePort(taken))
-	cfg.Admin.TokenFile = filepath.Join(dir, adminTokenName)
+	done := p.section("Metrics")
+	cfg.Metrics.Port = p.askInt("Port", defaultMetricsPort, freePort(taken))
 	done()
 
 	p.printf("\n")
@@ -176,20 +162,6 @@ func freePort(taken map[int]bool) func(int) error {
 		}
 		return nil
 	}
-}
-
-func writeAdminToken(path string) (bool, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304 -- path is derived from the operator-supplied output flag
-	if errors.Is(err, fs.ErrExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	token := make([]byte, adminTokenBytes)
-	_, _ = rand.Read(token)
-	_, writeErr := fmt.Fprintf(f, "%s\n", hex.EncodeToString(token))
-	return true, errors.Join(writeErr, f.Close())
 }
 
 func secretFiles(cfg config.Config) []string {

@@ -3,46 +3,42 @@ package store
 import (
 	"context"
 	"database/sql"
+	"math"
 	"time"
 
 	"github.com/bltn/hl7gw/internal/record"
 )
 
-type MessagesPage struct {
-	Messages []record.Message
-	Total    int
-}
-
-func (s *Store) ListMessages(ctx context.Context, pageNumber, pageSize int) (MessagesPage, error) {
+func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]record.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return MessagesPage{}, err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var page MessagesPage
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM messages").Scan(&page.Total); err != nil {
-		return MessagesPage{}, err
+	if beforeID == 0 {
+		beforeID = math.MaxInt64
+	}
+	msgs, err := readMessages(ctx, tx, listMessagesQuery, beforeID, limit)
+	if err != nil || len(msgs) == 0 {
+		return msgs, err
 	}
 
-	page.Messages, err = readMessages(ctx, tx, selectMessages+" ORDER BY id LIMIT ? OFFSET ?",
-		pageSize, (pageNumber-1)*pageSize)
-	if err != nil || len(page.Messages) == 0 {
-		return page, err
+	byID := make(map[int64]*record.Message, len(msgs))
+	for i := range msgs {
+		byID[msgs[i].ID] = &msgs[i]
 	}
-
-	byID := make(map[int64]*record.Message, len(page.Messages))
-	for i := range page.Messages {
-		byID[page.Messages[i].ID] = &page.Messages[i]
-	}
-	err = readAttempts(ctx, tx, page.Messages[0].ID, page.Messages[len(page.Messages)-1].ID, byID)
-	return page, err
+	err = readAttempts(ctx, tx, msgs[len(msgs)-1].ID, msgs[0].ID, byID)
+	return msgs, err
 }
 
-const selectMessages = "SELECT id, received_at, created_at, updated_at, raw, xml, transform_error, ack, ack_outcome FROM messages"
+const (
+	selectMessages    = "SELECT id, received_at, created_at, updated_at, raw, xml, transform_error, ack, ack_outcome FROM messages"
+	listMessagesQuery = selectMessages + " WHERE id < ? ORDER BY id DESC LIMIT ?"
+)
 
 func readMessages(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]record.Message, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)

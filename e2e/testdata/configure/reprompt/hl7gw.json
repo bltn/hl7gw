@@ -1,7 +1,6 @@
 {
-  "admin": {
-    "port": 9000,
-    "token_file": "admin.token"
+  "metrics": {
+    "port": 9000
   },
   "data_dir": "data",
   "cert_reload_interval": "2m",

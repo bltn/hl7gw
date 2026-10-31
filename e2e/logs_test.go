@@ -33,7 +33,7 @@ const (
 	msgCAReloaded             = "client ca pool reloaded"
 	msgCertReloadFailed       = "server cert reload failed, still serving previous cert"
 	msgCAReloadFailed         = "client ca reload failed, still verifying against previous pool"
-	msgAdminAPIListening      = "admin api listening"
+	msgMetricsListening       = "metrics listening"
 	msgRetentionSweep         = "retention sweep"
 	msgRetentionSweepFailed   = "retention sweep failed"
 	msgRetentionOff           = "retention off"

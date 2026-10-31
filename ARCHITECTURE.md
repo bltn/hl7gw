@@ -30,7 +30,7 @@ handled in the order they arrive.
   `hl7gw_messages_in_flight` rises while this is happening.
 - **Your API is down.** Each message is persisted, tried twice and answered
   with `AE`. hl7gw doesn't redeliver it on its own. Either the sender
-  resends it or you replay it through the admin API.
+  resends it or you replay it with `hl7gw replay`.
 - **Too many senders connect.** Each channel accepts up to `max_connections`
   (64 by default). At the limit it stops accepting until a connection closes,
   and `hl7gw_accept_paused` reads 1.
@@ -41,8 +41,8 @@ handled in the order they arrive.
   (SQLite WAL, `synchronous=FULL`) before it's parsed, so nothing a sender
   got an ACK for is lost. A message caught mid-flight gets no ACK, so the
   sender resends it, and it may then be persisted twice.
-- **You deploy (SIGTERM or SIGINT).** Listeners stop accepting and idle
-  connections close. Messages already in progress finish delivery and get
+- **You deploy (SIGTERM or SIGINT).** Listeners stop accepting, idle
+  connections close, and the socket and metrics port close. Messages already in progress finish delivery and get
   their ACK, but a failed delivery isn't retried. A 20-second hard limit
   applies, after which the remaining work is abandoned and the process exits.
 - **The database grows.** Rows older than `retention` (30 days by default)
@@ -113,12 +113,27 @@ The config file names token and password files and never holds secrets, so it
 can be committed and reviewed like any other file. A missing or empty secret
 file stops startup, so a misconfiguration can't fail later at runtime.
 
+### Operate through the gateway, from the shell
+
+The gateway is the only process that opens the channel databases. The
+operator subcommands (`messages`, `replay`, `process`) are clients of it over
+a unix socket in `data_dir`, so access is the file permissions on that
+directory, and a replay or a test message runs through the same pipeline,
+metrics and log stream as live traffic. The socket is also the gateway's
+lock on the data directory: a second instance pointed at it refuses to start.
+
+**Cost:** the subcommands need the gateway running.
+
 ## Code map
 
 ```
-main.go                 subcommand dispatch (run, configure), flags and signal handling
-internal/gateway        composition root: wires config, stores, listeners and the admin API;
+main.go                 subcommand dispatch (run, configure, messages, replay, process),
+                        flags and signal handling
+internal/gateway        composition root: wires config, stores, listeners and the metrics port;
                         maps a processing outcome to an ACK code
+internal/ops            the operator subcommands: the unix-socket server inside the gateway
+                        and the CLI client that calls it
+internal/httpserve      runs an http.Server under the errgroup with ctx-driven shutdown
 internal/configure      the interactive wizard behind `hl7gw configure`; writes a config
                         that config.Load accepts
 internal/config         loads and validates the JSON config, reads secret files, loads TLS
@@ -133,13 +148,11 @@ internal/delivery       the HTTP client (one retry) and recording of delivery at
 internal/store          per-channel SQLite persistence
 internal/retention      the retention sweep: once at startup, then hourly
 internal/record         what's persisted about a message and its delivery attempts
-internal/api            the admin HTTP API
-internal/metrics        Prometheus collectors
+internal/metrics        Prometheus collectors; serves /metrics and the health probes
 internal/shutdown       the drain deadline
 internal/tls            certificate and CA pool loading
 e2e/                    black-box tests that drive the built binary
 ```
 
 The pipeline runs in `processor.ParseTransformDeliver`. MLLP connections and
-`POST /process-message` both call it, so the two entry points can't drift
-apart.
+`hl7gw process` both call it, so the two entry points can't drift apart.

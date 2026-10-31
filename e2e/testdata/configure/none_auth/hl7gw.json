@@ -1,7 +1,6 @@
 {
-  "admin": {
-    "port": 8081,
-    "token_file": "admin.token"
+  "metrics": {
+    "port": 8081
   },
   "data_dir": "data",
   "cert_reload_interval": "2m",

@@ -4,7 +4,6 @@ package e2e
 
 import (
 	_ "embed"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/bltn/hl7gw/e2e/internal/harness"
 )
@@ -51,8 +52,7 @@ const (
 	subcommandConfigure = "configure"
 	flagOutput          = "-output"
 	configFileName      = "hl7gw.json"
-	adminTokenFileName  = "admin.token"
-	nextStepsHead       = "Next steps:\n  Admin API token: admin.token (generated)\n"
+	nextStepsHead       = "Next steps:\n"
 	nextStepsRun        = "  ./hl7gw run\n"
 	nextStepsFiles      = "  Put each destination's bearer token or password in its file:\n"
 )
@@ -62,9 +62,9 @@ func runConfigure(t *testing.T, dir, session string) (harness.ExitResult, error)
 	return harness.RunUntilExit(dir, session, subcommandConfigure, flagOutput, configFileName)
 }
 
-func readConfigured(t *testing.T, dir, name string) string {
+func readConfigured(t *testing.T, dir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // G304 -- test temp path
+	data, err := os.ReadFile(filepath.Join(dir, configFileName)) //nolint:gosec // G304 -- test temp path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,23 +81,19 @@ func TestConfigureWritesConfig(t *testing.T) {
 	if res.Code != 0 {
 		t.Fatalf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
 	}
-	if got := readConfigured(t, dir, configFileName); got != twoChannelsConfig {
+	if got := readConfigured(t, dir); got != twoChannelsConfig {
 		t.Errorf("written config\n--- got ---\n%s\n--- want ---\n%s", got, twoChannelsConfig)
 	}
 	want := nextStepsHead + nextStepsFiles + "    adt.token\n    lab.password\n" + nextStepsRun
 	if !strings.HasSuffix(res.Stdout, want) {
 		t.Errorf("stdout missing next steps\n--- stdout ---\n%s", res.Stdout)
 	}
-	info, err := os.Stat(filepath.Join(dir, adminTokenFileName))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("admin token mode = %v, want 0600", info.Mode().Perm())
-	}
-	token := readConfigured(t, dir, adminTokenFileName)
-	if _, err := hex.DecodeString(strings.TrimSuffix(token, "\n")); err != nil || len(token) != 65 {
-		t.Errorf("admin token = %q, want 64 hex characters and a newline", token)
+	if len(entries) != 1 || entries[0].Name() != configFileName {
+		t.Errorf("wizard wrote %d files, want only %s", len(entries), configFileName)
 	}
 }
 
@@ -136,7 +132,7 @@ func TestConfigureRepromptsOnInvalidInput(t *testing.T) {
 			t.Errorf("stdout missing %q\n--- stdout ---\n%s", want, res.Stdout)
 		}
 	}
-	if got := readConfigured(t, dir, configFileName); got != repromptConfig {
+	if got := readConfigured(t, dir); got != repromptConfig {
 		t.Errorf("written config\n--- got ---\n%s\n--- want ---\n%s", got, repromptConfig)
 	}
 }
@@ -151,7 +147,7 @@ func TestConfigureNoneAuthNeedsNoSecretFile(t *testing.T) {
 	if res.Code != 0 {
 		t.Fatalf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
 	}
-	if got := readConfigured(t, dir, configFileName); got != noneAuthConfig {
+	if got := readConfigured(t, dir); got != noneAuthConfig {
 		t.Errorf("written config\n--- got ---\n%s\n--- want ---\n%s", got, noneAuthConfig)
 	}
 	if want := nextStepsHead + nextStepsRun; !strings.HasSuffix(res.Stdout, want) {
@@ -197,8 +193,43 @@ func TestConfigureAcceptsFinalLineWithoutNewline(t *testing.T) {
 	if res.Code != 0 {
 		t.Errorf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
 	}
-	if got := readConfigured(t, dir, configFileName); !strings.Contains(got, `"data_dir": "databases"`) {
+	if got := readConfigured(t, dir); !strings.Contains(got, `"data_dir": "databases"`) {
 		t.Errorf("final answer without a newline was not applied\n--- config ---\n%s", got)
+	}
+}
+
+func openStdin(t *testing.T) *os.File {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	return r
+}
+
+func TestConfigureExitsOnInterrupt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p, err := harness.Start(dir, openStdin(t), subcommandConfigure, flagOutput, configFileName)
+	if err != nil {
+		t.Fatalf("start configure: %v", err)
+	}
+	if !p.WaitForOutput("Name (e.g. adt, lab-results)", 5*time.Second) {
+		t.Fatal("configure never showed its first prompt")
+	}
+	if err := p.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("interrupt configure: %v", err)
+	}
+	res, err := p.Wait()
+	if err != nil {
+		t.Fatalf("wait for configure: %v", err)
+	}
+	if res.Signal != syscall.SIGINT {
+		t.Errorf("exit code %d, signal %v, want killed by SIGINT\n--- stderr ---\n%s", res.Code, res.Signal, res.Stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, configFileName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat %s = %v, want not exist", configFileName, err)
 	}
 }
 
@@ -217,10 +248,8 @@ func TestConfigureStopsWhenInputEnds(t *testing.T) {
 			t.Errorf("stderr missing %q\n--- stderr ---\n%s", want, res.Stderr)
 		}
 	}
-	for _, name := range []string{configFileName, adminTokenFileName} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("stat %s = %v, want not exist", name, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, configFileName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat %s = %v, want not exist", configFileName, err)
 	}
 }
 
@@ -258,7 +287,7 @@ func TestConfigureOverwrite(t *testing.T) {
 			if !strings.Contains(res.Stderr, tc.wantStderr) {
 				t.Errorf("stderr missing %q\n--- stderr ---\n%s", tc.wantStderr, res.Stderr)
 			}
-			got := readConfigured(t, dir, configFileName)
+			got := readConfigured(t, dir)
 			if kept := got == "keep me"; kept != tc.kept {
 				t.Errorf("kept = %v, want %v\n--- file ---\n%s", kept, tc.kept, got)
 			}
@@ -299,41 +328,20 @@ func TestConfigureReportsWriteFailure(t *testing.T) {
 	}
 }
 
-func TestConfigureKeepsExistingAdminToken(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, adminTokenFileName), []byte("keep me\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	res, err := runConfigure(t, dir, defaultsSession)
-	if err != nil {
-		t.Fatalf("run configure: %v", err)
-	}
-	if res.Code != 0 {
-		t.Fatalf("exit code = %d\n--- stderr ---\n%s", res.Code, res.Stderr)
-	}
-	if got := readConfigured(t, dir, adminTokenFileName); got != "keep me\n" {
-		t.Errorf("admin token = %q, want untouched", got)
-	}
-	if !strings.Contains(res.Stdout, "Admin API token: admin.token (already existed, left unchanged)") {
-		t.Errorf("stdout missing the existing token line\n--- stdout ---\n%s", res.Stdout)
-	}
-}
-
 func TestConfiguredGatewayBoots(t *testing.T) {
 	t.Parallel()
 	ports, err := harness.FreePorts(4)
 	if err != nil {
 		t.Fatalf("find free ports: %v", err)
 	}
-	apiPort, adtPort, securePort, openPort := ports[0], ports[1], ports[2], ports[3]
+	metricsPort, adtPort, securePort, openPort := ports[0], ports[1], ports[2], ports[3]
 	ct, err := harness.NewMTLS(t)
 	if err != nil {
 		t.Fatalf("generate mtls material: %v", err)
 	}
 	sink := harness.NewSink(t, http.StatusOK, "")
 	openSink := harness.NewSink(t, http.StatusOK, "")
-	dir := t.TempDir()
+	dir := shortDir(t)
 	for _, name := range []string{channelName, secureChannel} {
 		if err := os.WriteFile(filepath.Join(dir, name+".token"), []byte("e2e-channel-token\n"), 0o600); err != nil {
 			t.Fatalf("write %s token: %v", name, err)
@@ -344,7 +352,7 @@ func TestConfiguredGatewayBoots(t *testing.T) {
 		channelName, adtPort, sink.URL(),
 		secureChannel, securePort, ct.CertFile, ct.KeyFile, ct.ClientCAFile, sink.URL(),
 		openChannel, openPort, openSink.URL(),
-		apiPort)
+		metricsPort)
 	res, err := runConfigure(t, dir, session)
 	if err != nil {
 		t.Fatalf("run configure: %v", err)
@@ -353,7 +361,7 @@ func TestConfiguredGatewayBoots(t *testing.T) {
 		t.Fatalf("exit code = %d\n--- stdout ---\n%s\n--- stderr ---\n%s", res.Code, res.Stdout, res.Stderr)
 	}
 
-	gw, err := harness.StartGatewayFromConfig(t, dir, "", apiPort, map[string]int{channelName: adtPort, secureChannel: securePort, openChannel: openPort})
+	gw, err := harness.StartGatewayFromConfig(t, dir, "", metricsPort, map[string]int{channelName: adtPort, secureChannel: securePort, openChannel: openPort})
 	if err != nil {
 		t.Fatalf("start gateway from the written config: %v", err)
 	}
@@ -379,12 +387,8 @@ func TestConfiguredGatewayBoots(t *testing.T) {
 		t.Errorf("none channel authorization headers = %q, want exactly one empty header", auths)
 	}
 
-	token := readConfigured(t, dir, adminTokenFileName)
-	resp, err := gw.APIGet("/channels", "Bearer "+strings.TrimSpace(token))
-	if err != nil {
-		t.Fatalf("get /channels with the generated token: %v", err)
-	}
-	if resp.Status != http.StatusOK {
-		t.Errorf("status = %d with the generated admin token, want 200", resp.Status)
+	waitForAcks(t, gw, channelName, 1)
+	if summaries := listMessages(t, gw, channelName); len(summaries) != 1 || summaries[0].ControlID != "MSG00001" {
+		t.Errorf("messages via the written config = %+v, want the one sent message", summaries)
 	}
 }

@@ -3,14 +3,16 @@
 hl7gw writes structured logs to stdout, serves Prometheus metrics, and
 answers liveness and readiness probes, so it fits whatever monitoring stack
 you already run. Message bodies, transformed XML and ACK payloads are never
-logged. They're persisted in the channel's database and can be read through
-the admin API.
+logged. They're persisted in the channel's database and read with
+`hl7gw messages` (see [cli.md](cli.md)).
 
 ## Logs
 
 Logs go to **stdout**, written with Go's `log/slog`. The only thing written
 to stderr is the fatal `error: …` line printed when the gateway refuses to
-start. The optional `log` config block controls the output:
+start. (The operator subcommands print their result on stdout and an
+`error: …` line on stderr.) The optional `log` config block controls the
+output:
 
 ```json
 "log": {"level": "info", "format": "auto"}
@@ -51,13 +53,14 @@ carry `channel`, and records about a message carry `message_id` (the
 message's row id in the channel database). Error text is in `err`, and
 elapsed times are in `duration_ms`.
 
-The `msg` values below are a stable contract:
+Records:
 
 | level | msg | attrs |
 |---|---|---|
 | info | `starting` | version, commit, config |
 | info | `listening` | channel, addr, tls, serial and expires (mTLS only) |
-| info | `admin api listening` | addr |
+| info | `ops listening` | socket |
+| info | `metrics listening` | addr |
 | info | `stopped accepting connections` | channel |
 | warn | `shutdown deadline reached, abandoned in-flight work` | |
 | info | `shutdown complete` | |
@@ -87,8 +90,7 @@ The `msg` values below are a stable contract:
 | info | `message dry run` | channel, outcome, control_id, message_type |
 | info | `replay finished` | channel, message_id, outcome |
 | warn | `readiness check failed` | channel, err |
-| info | `admin api request` | method, path, status, duration_ms (authenticated routes only) |
-| warn | `admin api unauthorized` | method, path, remote |
+| info | `ops request` | method, path, query, status, duration_ms |
 
 `connection closed` reasons:
 
@@ -104,8 +106,9 @@ Persistence `operation` values: `create_message`, `record_transform`,
 
 ## Metrics
 
-`GET /metrics` on the admin port serves the Prometheus text exposition
-format without authentication. Any Prometheus-compatible scraper can target
+`GET /metrics` on the metrics port serves the Prometheus text exposition
+format. Nothing on that port carries message data, so it needs no
+authentication. Any Prometheus-compatible scraper can target
 it directly, such as Prometheus, the OpenTelemetry Collector, Grafana Agent
 or the Datadog agent. Label values are lowercase.
 
@@ -139,12 +142,14 @@ backpressure holds the sender instead of returning an error.
   checks nothing else, so an orchestrator only restarts the gateway when it's
   wedged.
 - `GET /readyz` answers `200 ok` when every channel's database
-  answers a query. If one doesn't, it answers `503` with problem details
+  answers a query. If one doesn't, it answers `503` with a plain-text body
   naming the channel. The downstream API is deliberately not probed: the
   gateway's job is to accept and persist messages whether or not the
   downstream is reachable, and downstream health is visible in
   `hl7gw_delivery_attempts_total`.
 
-On SIGTERM, the admin listener closes within milliseconds while in-flight
+Any other path on the port answers `404`, and any other method `405`.
+
+On SIGTERM, the metrics listener closes within milliseconds while in-flight
 MLLP work drains. Probes therefore see a refused connection rather than a
 `503` during the drain. Orchestrators treat both as not ready.

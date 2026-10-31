@@ -72,7 +72,7 @@ func TestExitsWhenDataDirCannotBeCreated(t *testing.T) {
 		t.Fatalf("write blocker file: %v", err)
 	}
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": 9990, "token_file": "admin.token"}, "channels": []}`, filepath.Join(blocker, "data"))
+	cfg := fmt.Sprintf(`{"data_dir": %q, "metrics": {"port": 9990}, "channels": []}`, filepath.Join(blocker, "data"))
 	expectStartupFailure(t, cfg, errorPrefix, "creating data dir", "not a directory")
 }
 
@@ -87,7 +87,7 @@ func TestUnwindsStoresOnOpenFailure(t *testing.T) {
 		t.Fatalf("write corrupt db: %v", err)
 	}
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": 9990, "token_file": "admin.token"}, "channels": [
+	cfg := fmt.Sprintf(`{"data_dir": %q, "metrics": {"port": 9990}, "channels": [
 		{"name": "first", `+source9998OK+`, `+destinationOK+`},
 		{"name": "second", `+sourceOK+`, `+destinationOK+`}
 	]}`, dataDir)
@@ -179,7 +179,7 @@ func TestExitsWhenSchemaVersionTooNew(t *testing.T) {
 		t.Fatalf("stamping future schema version: %v", err)
 	}
 
-	cfg := fmt.Sprintf(`{"data_dir": %q, "admin": {"port": 9990, "token_file": "admin.token"}, "channels": [
+	cfg := fmt.Sprintf(`{"data_dir": %q, "metrics": {"port": 9990}, "channels": [
 		{"name": "solo", `+sourceOK+`, `+destinationOK+`}
 	]}`, dataDir)
 	expectStartupFailure(t, cfg, errorPrefix, "channel solo", "newer than this binary supports")

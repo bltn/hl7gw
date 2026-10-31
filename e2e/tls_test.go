@@ -105,7 +105,7 @@ func TestExitsOnInvalidChannelTLS(t *testing.T) {
 		{
 			name:       "missing client CA file",
 			badTLS:     mtlsJSON(filepath.Join(dir, "does-not-exist.pem"), ctA.CertFile, ctA.KeyFile, "1.2"),
-			wantStderr: []string{"channel bad: reading client CA file", "no such file or directory"},
+			wantStderr: []string{"channel bad: reading client CA file", noSuchFile},
 		},
 		{
 			name:       "empty client CA file",
@@ -131,7 +131,7 @@ func TestExitsOnInvalidChannelTLS(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			body := `{` + adminOK + `, "channels": [
+			body := `{` + metricsOK + `, "channels": [
 				{"name": "good", "source": {"port": 9998, "idle_timeout": "24h", "tls": ` + goodTLS + `}, ` + destinationOK + `},
 				{"name": "bad", "source": {"port": 9999, "idle_timeout": "24h", "tls": ` + tc.badTLS + `}, ` + destinationOK + `}
 			]}`

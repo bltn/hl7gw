@@ -11,7 +11,13 @@ import (
 	"github.com/bltn/hl7gw/e2e/internal/harness"
 )
 
-func TestProbesAnswerWithoutAuth(t *testing.T) {
+const (
+	healthzPath = "/healthz"
+	readyzPath  = "/readyz"
+	metricsPath = "/metrics"
+)
+
+func TestProbesAnswer(t *testing.T) {
 	t.Parallel()
 	sink := harness.NewSink(t, http.StatusOK, "")
 	gw, err := harness.StartGateway(t, harness.Channel{Name: channelName, DestURL: sink.URL()})
@@ -21,7 +27,7 @@ func TestProbesAnswerWithoutAuth(t *testing.T) {
 
 	for _, path := range []string{healthzPath, readyzPath} {
 		t.Run(path, func(t *testing.T) {
-			resp, err := gw.APIGet(path, "")
+			resp, err := gw.HTTPDo(http.MethodGet, path)
 			if err != nil {
 				t.Fatalf("get %s: %v", path, err)
 			}
@@ -31,10 +37,25 @@ func TestProbesAnswerWithoutAuth(t *testing.T) {
 			if string(resp.Body) != "ok" {
 				t.Errorf("body = %q, want ok", resp.Body)
 			}
-			if resp.ReqSpecErr != nil || resp.RespSpecErr != nil {
-				t.Errorf("reqSpecErr = %v, respSpecErr = %v; want spec-clean", resp.ReqSpecErr, resp.RespSpecErr)
+			if ct := resp.Header.Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+				t.Errorf("Content-Type = %q, want text/plain", ct)
 			}
 		})
+	}
+
+	resp, err := gw.HTTPDo(http.MethodGet, "/messages")
+	if err != nil {
+		t.Fatalf("get /messages: %v", err)
+	}
+	if resp.Status != http.StatusNotFound {
+		t.Errorf("/messages status = %d, want 404 (the metrics port serves no data)", resp.Status)
+	}
+	resp, err = gw.HTTPDo(http.MethodPost, healthzPath)
+	if err != nil {
+		t.Fatalf("post %s: %v", healthzPath, err)
+	}
+	if resp.Status != http.StatusMethodNotAllowed || resp.Header.Get("Allow") != "GET, HEAD" {
+		t.Errorf("POST %s = %d with Allow %q, want 405 and GET, HEAD", healthzPath, resp.Status, resp.Header.Get("Allow"))
 	}
 }
 
@@ -50,21 +71,14 @@ func TestMetricsCountTheMessageFlow(t *testing.T) {
 		t.Fatalf("send and ack: %v", err)
 	}
 
-	resp, err := gw.APIGet(metricsPath, "")
+	resp, err := gw.HTTPDo(http.MethodGet, metricsPath)
 	if err != nil {
 		t.Fatalf("get /metrics: %v", err)
 	}
 	if resp.Status != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", resp.Status, resp.Body)
 	}
-	if resp.ReqSpecErr != nil || resp.RespSpecErr != nil {
-		t.Errorf("reqSpecErr = %v, respSpecErr = %v; want spec-clean", resp.ReqSpecErr, resp.RespSpecErr)
-	}
-	raw, err := gw.APIRaw(http.MethodGet, metricsPath, "", nil)
-	if err != nil {
-		t.Fatalf("raw get /metrics: %v", err)
-	}
-	if ct := raw.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
 		t.Errorf("Content-Type = %q, want the Prometheus text format", ct)
 	}
 

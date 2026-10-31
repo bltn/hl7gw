@@ -61,7 +61,7 @@ func TestPersistedMessagesSurviveKillAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart gateway on the same data dir: %v", err)
 	}
-	resp, err := gw2.APIGet(readyzPath, "")
+	resp, err := gw2.HTTPDo(http.MethodGet, readyzPath)
 	if err != nil {
 		t.Fatalf("get %s after restart: %v", readyzPath, err)
 	}
